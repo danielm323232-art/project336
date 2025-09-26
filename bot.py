@@ -23,22 +23,24 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-FIREBASE_CRED = os.getenv("FIREBASE_CRED")
 TELEBIRR_NUMBER = os.getenv("TELEBIRR_NUMBER")
 FIREBASE_DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("FIREBASE_DATABASE_URL")
 
 # ------------------ Firebase ------------------
-cred = credentials.Certificate(FIREBASE_CRED)
+import json
+cred_data = json.loads(os.getenv("FIREBASE_CRED_JSON"))
+cred = credentials.Certificate(cred_data)
 firebase_admin.initialize_app(cred, {
     'databaseURL': FIREBASE_DATABASE_URL
 })
+
 
 # ------------------ Paths ------------------
 os.makedirs("pdfs", exist_ok=True)
 os.makedirs("outputs", exist_ok=True)
 
 TEMPLATE_PATH = "LAST.png"
-FONT_PATH = "NotoSansEthiopic-SemiBold.ttf"
+FONT_PATH = "NotoSansEthiopic-ExtraBold.ttf"
 
 # ------------------ Helpers ------------------
 def is_user_allowed(user_id):
@@ -78,7 +80,17 @@ def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
         day = calendar.monthrange(year, month)[1] - (2 - day)
     
     return year, month, day
+import asyncio
 
+async def delayed_cleanup(paths, delay=300):  # 300 sec = 5 min
+    await asyncio.sleep(delay)
+    for path in paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                print(f"Deleted {path}")
+        except Exception as e:
+            print(f"Cleanup error: {e}")
 def add_demo_watermark(image_path, output_path):
     """Overlay multiple DEMO watermarks on the given image."""
     img = Image.open(image_path).convert("RGBA")
@@ -220,7 +232,7 @@ def extract_id_data(pdf_path):
 
         # Now crop FIN and barcode for placing on card
         w, h = fin_img.size
-        fin_crop = fin_img.crop((int(w * 0.5), int(h * 0.65), int(w * 0.91), int(h * 0.69)))
+        fin_crop = fin_img.crop((int(w * 0.63), int(h * 0.65), int(w * 0.91), int(h * 0.69)))
         data["fin_img"] = fin_crop
         images["fin_img"] = fin_crop
 
@@ -285,6 +297,11 @@ def add_white_shadow(img, blur_radius=25, expand=25):
     shadow = Image.composite(shadow_draw, shadow, blurred_mask)
     combined = Image.alpha_composite(shadow, img)
     return combined
+import random
+
+def generate_number_str():
+    number = random.randint(8_900_000, 9_500_000)
+    return str(number)
 
 def create_id_card(data, template_path, output_path):
     template = Image.open(template_path).convert("RGB")
@@ -293,9 +310,11 @@ def create_id_card(data, template_path, output_path):
     try:
         font = ImageFont.truetype(FONT_PATH, 30)
         fonts = ImageFont.truetype(FONT_PATH, 20)
+        fontss = ImageFont.truetype(FONT_PATH, 25)
     except:
         font = ImageFont.load_default()
         fonts = ImageFont.load_default()
+        fontss = ImageFont.load_default()
 
     # --- Place photo ---
     if data["images"]:
@@ -341,6 +360,7 @@ def create_id_card(data, template_path, output_path):
     draw.text((1085, 310), data["subcity_en"], fill="black", font=font)
     draw.text((1085, 340), data["woreda_am"], fill="black", font=font)
     draw.text((1085, 370), data["woreda_en"], fill="black", font=font)
+    draw.text((1900, 570), generate_number_str(), fill="black", font=fontss)
 
     # --- Paste FAN barcode ---
         # --- Paste FAN barcode ---
@@ -360,9 +380,9 @@ def create_id_card(data, template_path, output_path):
     # --- Paste FIN ---
     if "fin_img" in data["images"]:
         fin_img = data["images"]["fin_img"]
-        tar_w, tar_h = 398, 58
+        tar_w, tar_h = 250, 52
         fin_imgs = fin_img.resize((tar_w, tar_h), Image.LANCZOS)
-        template.paste(fin_imgs, (1080, 506))
+        template.paste(fin_imgs, (1220, 506))
 
     # --- Paste QR if available ---
     for key, img in data["images"].items():
@@ -374,8 +394,76 @@ def create_id_card(data, template_path, output_path):
     template.save(output_path, "PNG", optimize=True)
 
 # ------------------ Telegram Handlers ------------------
+from telegram import ReplyKeyboardMarkup, KeyboardButton
+
+def register_user(user_id, username):
+    ref = db.reference(f'users/{user_id}')
+    if not ref.get():
+        ref.set({
+            "username": username,
+            "allow": False,
+            "package": 0
+        })
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Send me a PDF file to process.")
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or update.message.from_user.full_name
+    
+    # Register user if not exists
+    register_user(user_id, username)
+    
+    # Keyboard with options
+    keyboard = [
+        [KeyboardButton("📇 Print ID")],
+        [KeyboardButton("💳 Buy Package")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        "Welcome! Choose an option below:",
+        reply_markup=reply_markup
+    )
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    user_id = update.message.from_user.id
+    if context.user_data.get("awaiting_one_time_receipt"):
+        context.user_data["awaiting_one_time_receipt"] = False
+        await handle_one_time_payment(update, context)
+        return
+
+    if text == "📇 Print ID":
+        await update.message.reply_text("Please send me your PDF file to process.")
+
+    elif text == "💳 Buy Package":
+        # Show package options
+        keyboard = [
+            [KeyboardButton("200 birr = 10 packages")],
+            [KeyboardButton("500 birr = 30 packages")],
+            [KeyboardButton("1000 birr = 100 packages")],
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text(
+            f"Select a package below ",
+            reply_markup=reply_markup
+        )
+
+    elif text in ["200 birr = 10 packages", "500 birr = 30 packages", "1000 birr = 100 packages"]:
+        # Save chosen package in context.user_data
+        package_map = {
+            "200 birr = 10 packages": 10,
+            "500 birr = 30 packages": 30,
+            "1000 birr = 100 packages": 100,
+        }
+        context.user_data["requested_package"] = package_map[text]
+
+        await update.message.reply_text(
+            f"You selected {text}.\nNow send payment to {TELEBIRR_NUMBER}. Then reply the sms reciept from telebirr to be approved."
+        )
+
+    else:
+        await handle_payment_text(update, context)  # fallback for receipt
+
 
 async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -385,8 +473,20 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     pdf_id = store_pdf(user_id, file_path)
 
-    if is_user_allowed(user_id):
-        await update.message.reply_text(f"User allowed. Processing PDF {pdf_id}...")
+    user_ref = db.reference(f'users/{user_id}')
+    user_data = user_ref.get() or {}
+
+    has_package = user_data.get("package", 0) > 0
+    is_allowed = user_data.get("allow", False)
+
+    if is_allowed or has_package:
+        await update.message.reply_text(f"Processing PDF {pdf_id}...")
+
+        # Deduct 1 package if available
+        if has_package:
+            new_package_count = max(0, user_data["package"] - 1)
+            user_ref.update({"package": new_package_count})
+
         await process_printing(pdf_id, context)
     else:
         # Extract demo card
@@ -394,69 +494,216 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         demo_output = file_path.replace(".pdf", "_demo.png")
         create_id_card(extracted, TEMPLATE_PATH, demo_output)
 
-        # Apply DEMO watermark
         demo_watermarked = file_path.replace(".pdf", "_demo_watermarked.png")
         add_demo_watermark(demo_output, demo_watermarked)
 
-        # Send demo to user
-        with open(demo_watermarked, "rb") as demo_file:
-            await update.message.reply_photo(
-                photo=demo_file,
-                caption=f"You are not allowed yet.\nPlease send payment to {TELEBIRR_NUMBER} and reply with the receipt text."
-            )
+        # Save request in DB
+                # Save request in DB (store request_id so we can link one-time payment)
+        request_id = str(uuid.uuid4())
+        db.reference(f'print_requests/{request_id}').set({
+            'user_id': user_id,
+            'pdf_id': pdf_id,
+            'demo_path': demo_watermarked,
+            'final_path': demo_output,
+            'status': 'pending',
+            'created_at': datetime.utcnow().isoformat()
+        })
+
+        # keep the print request id in user's session so receipt can be linked
+        context.user_data["last_print_request"] = request_id
+
+        try:
+            with open(demo_watermarked, "rb") as demo_file:
+                await update.message.reply_photo(
+                    photo=demo_file,
+                    caption=f"You don’t have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the sms receipt message you recieve from telebirr."
+                )
+        except Exception as e:
+            print("Send error:", e)
+
+        # mark that we are awaiting a one-time receipt and which print request to fulfill
+        context.user_data["awaiting_one_time_receipt"] = True
 
 
 async def handle_payment_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     receipt_text = update.message.text
+    requested_package = context.user_data.get("requested_package", 0)
 
-    pdfs_ref = db.reference('pdfs').order_by_child('user_id').equal_to(user_id).get()
-    pending_pdf_id = None
-    for key, val in pdfs_ref.items():
-        if val['status'] == 'pending' and not val['allow']:
-            pending_pdf_id = key
-            break
+    
 
-    if pending_pdf_id:
-        db.reference(f'pdfs/{pending_pdf_id}').update({'receipt_text': receipt_text})
-        keyboard = [[InlineKeyboardButton("✅ Approve", callback_data=f"approve_{pending_pdf_id}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"User {user_id} submitted PDF {pending_pdf_id} with receipt:\n{receipt_text}",
-            reply_markup=reply_markup
-        )
-        await update.message.reply_text("Receipt received. Waiting for admin approval.")
-    else:
-        await update.message.reply_text("No pending PDF found.")
+    # Store pending package request
+    request_id = str(uuid.uuid4())
+    db.reference(f'package_requests/{request_id}').set({
+        'user_id': user_id,
+        'receipt_text': receipt_text,
+        'requested_package': requested_package,
+        'status': 'pending'
+    })
+
+    # Send to admin for approval
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve_pkg_{request_id}"),
+            InlineKeyboardButton("❌ Disapprove", callback_data=f"disapprove_pkg_{request_id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"📦 Package Request from User {user_id}\n"
+             f"Requested: {requested_package} packages\n"
+             f"Receipt:\n{receipt_text}",
+        reply_markup=reply_markup
+    )
+
+    await update.message.reply_text("Your receipt has been sent. Waiting for admin approval...")
+    context.user_data["requested_package"] = 0  # reset
+
+async def handle_one_time_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    receipt_text = update.message.text
+
+    # try to link to the last print request from this user's session
+    linked_print_request_id = context.user_data.get("last_print_request")
+
+    request_id = str(uuid.uuid4())
+    one_time_ref = db.reference(f'one_time_requests/{request_id}')
+    one_time_ref.set({
+        'user_id': user_id,
+        'receipt_text': receipt_text,
+        'status': 'pending',
+        'print_request_id': linked_print_request_id,  # may be None if not available
+        'created_at': datetime.utcnow().isoformat()
+    })
+
+    # Send to admin for approval
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Approve One-Time", callback_data=f"approve_one_{request_id}"),
+            InlineKeyboardButton("❌ Disapprove", callback_data=f"disapprove_one_{request_id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"🧾 One-Time Payment Request (25 birr)\nFrom User {user_id}\nLinked print_request: {linked_print_request_id}\nReceipt:\n{receipt_text}",
+        reply_markup=reply_markup
+    )
+
+    await update.message.reply_text("Your receipt was sent. Waiting for admin approval...")
+
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
+    if query.data.startswith("approve_one_"):
+        # Only admin can approve
+        if query.from_user.id != ADMIN_ID:
+            await query.edit_message_text("You are not allowed to approve.")
+            return
 
-    if not query.data.startswith("approve_"):
+        request_id = query.data.split("approve_one_")[1]
+
+        # 🔹 Get request_data from DB
+        request_ref = db.reference(f'one_time_requests/{request_id}')
+        request_data = request_ref.get()
+
+        if not request_data:
+            await query.edit_message_text("⚠️ One-time request not found or already handled.")
+            return
+
+        user_id = request_data['user_id']
+        print_request_id = request_data.get('print_request_id')
+
+        # Mark approved
+        request_ref.update({'status': 'approved', 'approved_by': query.from_user.id, 'approved_at': datetime.utcnow().isoformat()})
+
+        # If we have an explicit linked print request that's best — fetch it
+        final_path = None
+        if print_request_id:
+            pr = db.reference(f'print_requests/{print_request_id}').get()
+            if pr:
+                final_path = pr.get('final_path')
+
+        # If not linked or missing, try a fallback (the previous fragile scan)
+        if not final_path:
+            all_requests = db.reference('print_requests').get() or {}
+            last_req = None
+            for req_id, req in (all_requests.items() if isinstance(all_requests, dict) else []):
+                if req.get('user_id') == user_id:
+                    last_req = req
+            if last_req:
+                final_path = last_req.get('final_path')
+
+        if not final_path:
+            await query.edit_message_text(f"❗ Could not find the final image for user {user_id}. Ask them to resend or contact support.")
+            return
+
+        if final_path and os.path.exists(final_path):
+            with open(final_path, "rb") as f:
+                # send as document (same as paid flow) to preserve quality
+                await context.bot.send_document(
+                    chat_id=user_id,
+                    document=f,
+                    caption="🎉 Your payment was approved! Here is your ID card."
+                )
+        else:
+            await context.bot.send_message(chat_id=user_id, text="Payment approved but file is missing on server. Contact support.")
+
+        await query.edit_message_text(f"✅ One-time request completed for user {user_id}.")
+
+    if query.data.startswith("approve_pkg_") or query.data.startswith("disapprove_pkg_"):
+        request_id = query.data.split("_")[-1]
+        request_data = db.reference(f'package_requests/{request_id}').get()
+        if not request_data:
+            await query.edit_message_text("Request not found.")
+            return
+
+        if query.from_user.id != ADMIN_ID:
+            await query.edit_message_text("You are not allowed to approve.")
+            return
+
+        if query.data.startswith("approve_pkg_"):
+            user_id = request_data['user_id']
+            requested_package = request_data['requested_package']
+
+            # Update user's package count
+            user_ref = db.reference(f'users/{user_id}')
+            user_data = user_ref.get() or {}
+            current_packages = user_data.get("package", 0)
+            user_ref.update({"package": current_packages + requested_package})
+
+            # Mark request approved
+            db.reference(f'package_requests/{request_id}').update({'status': 'approved'})
+
+            await query.edit_message_text(f"✅ Approved {requested_package} packages for user {user_id}.")
+
+            # ✅ Send confirmation to user with menu
+            keyboard = [
+                [KeyboardButton("📇 Print ID")],
+                [KeyboardButton("💳 Buy Package")]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"🎉 Your purchase was approved! {requested_package} packages have been added to your account.\n\nChoose an option below 👇",
+                reply_markup=reply_markup
+            )
+
+
+        else:  # disapprove
+            db.reference(f'package_requests/{request_id}').update({'status': 'disapproved'})
+            await query.edit_message_text("❌ Request disapproved.")
+            await context.bot.send_message(
+                chat_id=request_data['user_id'],
+                text="❌ Your package request was disapproved. Please contact support."
+            )
         return
-
-    pdf_id = query.data.split("_")[1]
-    pdf_data = db.reference(f'pdfs/{pdf_id}').get()
-    if not pdf_data:
-        await query.edit_message_text("PDF not found.")
-        return
-
-    if user_id != ADMIN_ID:
-        await query.edit_message_text("You are not allowed to approve.")
-        return
-
-    db.reference(f'pdfs/{pdf_id}').update({'allow': True, 'status': 'approved'})
-    await query.edit_message_text(f"PDF {pdf_id} approved. Processing...")
-
-    await context.bot.send_message(
-        chat_id=pdf_data['user_id'],
-        text="Your PDF has been approved. Processing now..."
-    )
-
-    await process_printing(pdf_id, context)
+   
 
 async def process_printing(pdf_id, context):
     pdf_data = db.reference(f'pdfs/{pdf_id}').get()
@@ -467,21 +714,26 @@ async def process_printing(pdf_id, context):
     output_path = pdf_data['file_path'].replace(".pdf", ".png")
     create_id_card(extracted, TEMPLATE_PATH, output_path)
 
-    with open(output_path, "rb") as doc:
-        await context.bot.send_document(
-            chat_id=pdf_data['user_id'],
-            document=doc,
-            write_timeout=120,
-            connect_timeout=60,
-            read_timeout=60
-        )
+    try:
+        with open(output_path, "rb") as doc:
+            await context.bot.send_document(
+                chat_id=pdf_data['user_id'],
+                document=doc,
+                write_timeout=120,
+                connect_timeout=60,
+                read_timeout=60
+            )
+    finally:
+        # ✅ schedule delayed cleanup (5 minutes)
+        asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
+
 
 # ------------------ Main ------------------
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_text))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(CallbackQueryHandler(handle_callback))
 
 print("Bot started...")
