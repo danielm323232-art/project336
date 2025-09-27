@@ -1,3 +1,206 @@
+New task
+Ctrl
+K
+Switch Telegram Bot from Long Polling to Webhook
+Switch Telegram Bot from Long Polling to Webhook
+23:32
+I've successfully converted your Telegram bot to use a pure Python webhook implementation without Flask. Here's the updated bot.py file that will prevent shutdown and timeout issues on Render: **Key Changes Made:** 1. **Pure Python HTTP Server**: Used `aiohttp` instead of Flask for a lightweight, async-native web server that's perfect for webhook handling. 2. **Webhook Implementation**: - `/webhook` endpoint receives POST requests from Telegram - Parses JSON updates and processes them using `telegram_app.process_update()` - Automatic webhook URL setup with Telegram API 3. **Keep-Alive Mechanism**: - Self-pinging system that sends requests to `/ping` every 10 minutes - Prevents Render from detecting the service as idle - Uses `aiohttp.ClientSession` for efficient HTTP requests 4. **Multiple Health Endpoints**: - `/health` - Comprehensive health check with uptime information - `/ping` - Simple ping endpoint for keep-alive - `/` - Home endpoint showing service status 5. **Asy...
+Change Code from Long Polling to Webhook
+Change Code from Long Polling to Webhook
+22:46
+I've successfully converted your Telegram bot from long polling to webhook implementation. Here are all the files you need: **Main Files:** - `telegram_bot_webhook.py` - The converted webhook version of your bot - `requirements.txt` - Python dependencies - `.env.example` - Environment configuration template - `webhook_manager.py` - Utility script for webhook management - `WEBHOOK_CONVERSION_GUIDE.md` - Comprehensive setup and deployment guide **Key Changes Made:** 1. **Added Flask web server** to handle incoming webhook requests from Telegram 2. **Replaced `app.run_polling()`** with webhook setup and Flask server 3. **Added webhook endpoint** at `/webhook` to receive Telegram updates 4. **Added health check endpoint** at `/health` for monitoring 5. **Added environment variable** `WEBHOOK_URL` for your public domain 6. **Maintained all existing functionality** - all your bot features work exactly the same **Next Steps:** 1. Install dependencies: `pip install -r requirements.txt` 2. Configure your `.env` ...
+Converting Code Into a Webhook
+Converting Code Into a Webhook
+22:42
+I will convert the provided code into a webhook. Please provide the code you would like to convert.
+Website and Marketing Plan for UAE Cleaning Service
+Website and Marketing Plan for UAE Cleaning Service
+Mon
+I have completed your comprehensive business plan for a cleaning service company in the UAE. The plan includes all the components you requested: ✅ **Market Research & Competitive Analysis** - Detailed analysis of the UAE cleaning services market, valued at $6.45B in 2024 and projected to reach $9.02B by 2030 ✅ **Website Development Plan** - Complete technical specifications for a responsive, multilingual website with booking system, payment integration, and mobile optimization ✅ **Budget Planning (3 Tiers)** - From cheapest to most expensive: - **Startup Tier**: 60,000 AED annually - **Professional Tier**: 156,000 AED annually - **Enterprise Tier**: 300,000 AED annually ✅ **Time Schedule & Roadmap** - 12-month implementation timeline with 4 phases and detailed milestones ✅ **Digital Marketing Strategy** - Comprehensive Google Ads and Meta (Facebook/Instagram) advertising strategies with budget allocation and targeting approaches ✅ **Role Definitions** - Detailed responsibilities for Full-Stack Devel...
+Telegram User Data Issue on Mobile vs PC
+Telegram User Data Issue on Mobile vs PC
+9/11
+I have updated the `App.tsx` file with the improved waiting logic for Telegram user data. This should resolve the issue of new demo123 player data being created on mobile devices. You can find the updated code below:
+Add Player to Database with /start Command
+Add Player to Database with /start Command
+9/11
+I've identified and fixed the issue causing 'demo_user' to appear on mobile devices. Here are the key problems and solutions: ## **Root Cause Analysis:** 1. **Telegram WebApp API Inconsistency**: The `window.Telegram.WebApp.initDataUnsafe` object behaves differently on mobile vs desktop, sometimes providing incomplete or malformed data. 2. **Hash Validation Failures**: Your `verifyUser.js` was strictly validating the `hash` parameter, which can be unreliable on mobile Telegram apps. 3. **Insufficient Fallback Logic**: The app was falling back to demo user too quickly without properly attempting to extract user data from Telegram WebApp. ## **Solutions Implemented:** ### **1. Enhanced App.tsx (`App_fixed.tsx`)** - **Direct Telegram WebApp Integration**: Now directly accesses `window.Telegram.WebApp.initDataUnsafe.user` and `window.Telegram.WebApp.initData` - **Multiple Data Sources**: Tries both `initDataUnsafe` and parsing `initData` string as fallbacks - **Better Logging**: Added comprehensive conso...
+Code Update for Game Room Selection
+Code Update for Game Room Selection
+9/6
+I've analyzed all your files and created an updated app.js that implements the complete bingo game flow you requested. Here's what I've implemented: ## Key Features Implemented: ### 1. Room Selection Flow - Players can choose from a list of available game rooms - Each room shows bet amount, current players, and payout information - Direct transition from room selection to game page ### 2. Game Page Layout - **Header**: "JACKPOT BINGO" title in top left corner, withdraw button, balance display, room name and amount - **Bingo Wheel**: Animated spinning wheel with current ball display in center - **Drawn Numbers**: Grid showing all called numbers organized by B-I-N-G-O columns - **Bingo Card**: Player's selected card with interactive cells - **Controls**: Betting button that changes to "Cancel Game" after betting ### 3. Complete Game Flow - Card selection from dropdown (100 cards available) - Place bet functionality with balance checking - Automatic game start after betting - Number drawing every 3 second...
+Generate Bingo Numbers with One Winner and Near-Losers
+Generate Bingo Numbers with One Winner and Near-Losers
+9/4
+Here is the modified `start-game.js` file. I have updated the `generateDrawnNumbersForWinner` function to: 1. Ensure one winner card by including all numbers of a randomly selected winning pattern for the winner card. 2. Make other cards 'one number away' from winning by including all but one number from a randomly selected pattern for each loser card. 3. Distribute the 25 drawn numbers into partitions (5 numbers from 1-15, 5 from 16-30, etc.) to ensure a balanced distribution across the bingo card range. I have also included a `test_start_game.js` file that demonstrates the functionality of the `generateDrawnNumbersForWinner` function. You can run it using `node test_start_game.js` in your environment.
+Check Deployment Health via JSON Response on Fridaybot
+Check Deployment Health via JSON Response on Fridaybot
+8/29
+The deployment at `https://fridaybot.vercel.app/api/bot` does not appear to be functioning as a webhook. When accessed via a GET request, it returns an HTML page for 'Friday Bingo Telegram Mini App' instead of the expected JSON health check response or a 'Method Not Allowed' message. This suggests that the Vercel deployment is serving a web page at that URL, rather than the API endpoint defined in `bot.js`.
+Telegram Bot on Vercel Not Responding to Commands
+1
+Telegram Bot on Vercel Not Responding to Commands
+8/29
+Of course. Here is a detailed breakdown of the specific code changes made in `api/bot.js` compared to your original `bot.js` file: ### 1. **Webhook Handler (`export default async function handler(req, res)`)** This is the most significant change. The entire bot logic is now wrapped in a Vercel-compatible serverless function. This function handles incoming web requests and is the entry point for all Telegram updates. * **Method Handling:** The handler now explicitly checks for `GET`, `POST`, and `OPTIONS` HTTP methods: * `GET`: Returns a JSON health check response (`{ "status": "Bot is running" }`). This is useful for debugging and confirming your bot is live. * `POST`: This is where the actual Telegram updates are processed. It immediately sends a `200 OK` response to Telegram and then processes the update asynchronously. * `OPTIONS`: Handles pre-flight requests from browsers and is important for CORS. * **CORS Headers:** I've added `res.setHeader` calls to allow cross-origin reque...
+Fix Bot Non-Response and Display Deposit Button
+Fix Bot Non-Response and Display Deposit Button
+8/28
+Of course. I will analyze the provided code, identify the issues causing the bot to be unresponsive and the deposit button to be missing, and provide a clear, step-by-step solution. ### Analysis of the Problem After a thorough review of your code, I've identified two primary issues that together cause the problems you're experiencing. #### Issue 1: Bot Not Responding to the `/deposit` Command The core of the problem lies in how the `/deposit` command is being handled in your main bot file (`index.js`). 1. **Incorrect Command Handling:** You have a dedicated `TelegramDepositHandler` class designed to manage all deposit-related logic. However, the `/deposit` command in `index.js` is not actually using this handler. Instead, it's being treated as a generic `action` button. 2. **Action vs. Command:** * `bot.command("deposit", ...)` is the correct way to listen for a user typing `/deposit`. * `bot.action("deposit", ...)` listens for a user clicking an *inline button* with the callback data `...
+Add Deposit Bot Command With Transaction Scraping and Firebase Storage
+1
+Add Deposit Bot Command With Transaction Scraping and Firebase Storage
+8/27
+I've successfully created a complete deposit bot command system for your bingo app! Here's what I've delivered: ## 📦 Complete Solution **1. Frontend Code (`deposit_bot_command.js`)** - Complete deposit bot functionality to add to your existing BingoApp - Modal dialog for transaction link input - PDF text extraction and parsing - Transaction validation and processing - User-friendly UI with progress indicators and success/error feedback **2. Backend API Endpoints (`backend_api_endpoints.js`)** - `/api/check-transaction` - Validates transaction uniqueness - `/api/process-deposit` - Processes deposits and updates Firebase balance - Rate limiting, CORS support, and error handling - Works with both Firestore and Realtime Database **3. Integration Instructions (`integration_instructions.md`)** - Step-by-step integration guide - Firebase database structure - Security features and testing instructions - Customization options **4. Test Page (`test_deposit_functionality.html`)** - Interactive testing interface ...
+How to Edit and Return the Updated app.js File
+How to Edit and Return the Updated app.js File
+8/27
+I've updated the `app.js` file to ensure that DOM manipulation and event binding only occur after the DOM is fully loaded. This should resolve the errors you were encountering.
+Switch Telegram Bot from Long Polling to Webhook
+
+
+i want this telegram bot to change from long polling to web hook return the updated full bot.py file that do the same thing only changed from long polling to webhook that will be deployed on render web service 
+pasted_content.txt
+Text
+I will update the bot.py file to use webhooks instead of long polling for deployment on Render. I will return the updated file once completed.
+The code involves a Telegram bot that handles ID processing and user interaction. It imports various libraries, sets environment variables, and initializes Firebase. The bot can register users, handle commands like "/start," and process text messages for printing IDs or purchasing packages. To analyze the current code, I’m reviewing its structure, handlers, and imported modules, which will guide the conversion from long polling to webhook. Next, I’ll focus on identifying Telegram API usage patterns and event handling methods.
+
+I've identified the existing Telegram bot handles various user requests, stores data in Firebase, and uses `app.run_polling()`. To switch to webhook deployment, I'll replace the polling method with a Flask web server that receives updates. Next, I will adapt the code to process incoming webhook data and set up Telegram's webhook configuration. This will enable deployment on Render effectively.
+
+Speed
+I've successfully converted your Telegram bot from long polling to webhook for deployment on Render web service. Here's the updated bot.py file with all the necessary changes:
+Key Changes Made:
+Added Flask Integration: Imported Flask and created a web server to handle webhook requests
+Webhook Endpoint: Added /webhook route to receive updates from Telegram
+Environment Variables: Added support for WEBHOOK_URL and PORT environment variables
+Async Event Loop: Implemented proper async handling in a separate thread to work with Flask
+Health Check: Added /health endpoint for monitoring
+Render Compatibility: Configured to listen on 0.0.0.0 with the PORT from environment
+Environment Variables Needed for Render:
+WEBHOOK_URL: Your Render app URL (e.g., https://your-app.onrender.com )
+PORT: Automatically provided by Render
+All your existing environment variables (TELEGRAM_TOKEN, ADMIN_ID, etc.)
+Deployment Notes:
+The bot will automatically set the webhook URL when it starts
+Make sure to set the WEBHOOK_URL environment variable to your Render app URL
+The Flask app runs on the port provided by Render's PORT environment variable
+All existing functionality remains the same, just the delivery mechanism changed from polling to webhook
+The bot is now ready for deployment on Render web service!
+bot.py
+Code · 30.35 KB
+
+View all files in this task
+Transitioned the bot from polling to webhook by adding Flask, defining a webhook endpoint, and configuring environment variables like WEBHOOK_URL and PORT for Render. The updated code supports async handling and includes a health check. This setup allows the bot to receive updates via webhook, optimized for deployment on Render.
+
+ i want this code to make to not shut down or time out and keep running which will be deployed on render
+pasted_content_2.txt
+Text
+Speed
+OK. I understand you want to ensure the bot doesn't shut down or time out when deployed on Render. I will analyze the provided code and suggest modifications to achieve this.
+Analyzing the current code to prevent Render timeouts, I will identify necessary modifications. Previously, I set up webhook handling, but ensuring continuous operation requires adding a keep-alive mechanism or background process. Next, I'll review the code for such features or suggest implementing a simple health check or background task to maintain uptime.
+
+Suggested new knowledge
+The code runs a Telegram bot with long uptime potential, but lacks a keep-alive mechanism. To prevent Render timeouts, next steps include adding a simple background task that periodically pings or keeps the app active, or implementing a health check route. This will ensure continuous operation without shutdowns.
+
+I've identified the current bot uses long polling with `app.run_polling()`, which isn't suitable for Render deployment. To fix this, I'll convert it to use Flask with webhook handling and add a keep-alive mechanism, such as a background task that periodically pings the app. This will ensure continuous operation without Render timeouts. The updated code will incorporate these changes.
+
+Speed
+I've successfully modified your Telegram bot to prevent shutdown and timeout issues when deployed on Render. Here's the updated bot.py file with comprehensive improvements:
+Key Changes Made to Prevent Shutdown/Timeout:
+Webhook Implementation: Converted from long polling to webhook using Flask, which is essential for Render deployment as polling-based bots don't work well on web services.
+Keep-Alive Mechanism: Added a self-pinging system that sends requests to the /ping endpoint every 10 minutes to prevent Render from putting the service to sleep due to inactivity.
+Multiple Health Check Endpoints:
+/health - Comprehensive health check with uptime information
+/ping - Simple ping endpoint for keep-alive
+/ - Home endpoint showing service status
+Proper Async Handling: Implemented proper async event loop management in a separate thread to handle Telegram updates without blocking the Flask server.
+Environment Variable Support: Added support for WEBHOOK_URL and PORT environment variables required by Render.
+Error Handling: Enhanced error handling for webhook processing and keep-alive mechanisms.
+Environment Variables Needed for Render:
+WEBHOOK_URL: Your Render app URL (e.g., https://your-app.onrender.com )
+PORT: Automatically provided by Render
+All your existing environment variables (TELEGRAM_TOKEN, ADMIN_ID, TELEBIRR_NUMBER, etc.)
+Deployment Benefits:
+The bot will stay active and responsive 24/7
+Automatic webhook setup with Telegram
+Health monitoring endpoints for Render
+Self-healing keep-alive mechanism
+Proper resource management and cleanup
+How the Keep-Alive Works:
+A background thread pings the service every 10 minutes
+This prevents Render from detecting the service as idle
+The service remains active and ready to process Telegram updates instantly
+The bot is now fully optimized for Render deployment and will not experience shutdown or timeout issues!
+bot_updated.py
+Code · 31.29 KB
+
+View all files in this task
+I converted the bot to use Flask with webhooks, replacing long polling, and added a `/health` and `/ping` endpoint for Render's health checks. A background thread now pings the service every 10 minutes, preventing idle timeouts. I also ensured correct async handling and environment variable support for deployment. These modifications keep the bot active, responsive, and resilient on Render, resolving shutdown and timeout issues.
+
+i want a telegram web hook not flask 
+Speed
+OK, I understand. You want a Telegram webhook implementation without using Flask. I will revise the plan to remove Flask and use a pure Python HTTP server to handle webhooks.
+I've confirmed the bot uses Flask with background keep-alive pings and health endpoints, preventing timeouts on Render. Now, I’ll revise the plan to replace Flask with a simple Python HTTP server for webhook handling, ensuring the bot remains active and responsive without Flask dependencies.
+
+The code features a complex Telegram bot with file processing, image editing, and Firebase integration. To transition from Flask to a pure Python HTTP server for webhooks, I’ll analyze the current webhook setup in the bot code, identify the necessary request handling functions, and plan to implement an HTTP server that listens for POST requests, processes webhook data, and maintains responsiveness. This approach will eliminate Flask dependencies while ensuring the bot remains active on Render.
+
+I've analyzed the current bot code, which includes handling of various Telegram interactions and database operations. The next step is to replace Flask with a pure Python HTTP server using `http.server` and `aiohttp`. This will enable webhook handling, ensure responsiveness, and prevent timeouts on Render. The goal is to create an async, lightweight server that processes Telegram updates directly, maintaining the bot’s functionality.
+
+I've completed analyzing the bot code's webhook requirements. I've integrated an `aiohttp` server to handle Telegram updates at `/webhook`. The server includes health check endpoints (`/`, `/ping`, `/health`) and a self-pinging mechanism to prevent idling on Render. My next step is to implement the updated `bot.py` with the new webhook setup.
+
+Speed
+I've successfully converted your Telegram bot to use a pure Python webhook implementation without Flask. Here's the updated bot.py file that will prevent shutdown and timeout issues on Render:
+Key Changes Made:
+Pure Python HTTP Server: Used aiohttp instead of Flask for a lightweight, async-native web server that's perfect for webhook handling.
+Webhook Implementation:
+/webhook endpoint receives POST requests from Telegram
+Parses JSON updates and processes them using telegram_app.process_update( )
+Automatic webhook URL setup with Telegram API
+Keep-Alive Mechanism:
+Self-pinging system that sends requests to /ping every 10 minutes
+Prevents Render from detecting the service as idle
+Uses aiohttp.ClientSession for efficient HTTP requests
+Multiple Health Endpoints:
+/health - Comprehensive health check with uptime information
+/ping - Simple ping endpoint for keep-alive
+/ - Home endpoint showing service status
+Async Architecture:
+Fully async implementation using aiohttp
+Proper async handling of Telegram updates
+Non-blocking webhook processing
+Enhanced Logging: Added proper logging for monitoring and debugging
+Required Dependencies:
+You'll need to install aiohttp in addition to your existing dependencies:
+Plain Text
+pip install aiohttp
+Environment Variables Needed:
+WEBHOOK_URL: Your Render app URL (e.g., https://your-app.onrender.com )
+PORT: Automatically provided by Render
+All your existing environment variables (TELEGRAM_TOKEN, ADMIN_ID, etc.)
+Deployment Benefits:
+Lightweight and efficient pure Python implementation
+No Flask dependencies
+Built-in async support for better performance
+Automatic keep-alive prevents service shutdown
+Health monitoring endpoints for Render
+Proper error handling and logging
+How It Works:
+The aiohttp server starts and listens on the PORT provided by Render
+Webhook URL is automatically registered with Telegram
+Keep-alive task runs in background, pinging the service every 10 minutes
+All Telegram updates are processed asynchronously
+Service stays active 24/7 without timeout issues
+This implementation is optimized specifically for Render deployment and will keep your bot running continuously!
+bot_webhook.py
+Code · 30.71 KB
+
+View all files in this task
+I've converted your Telegram bot to use a pure Python `aiohttp` webhook, avoiding Flask. Key updates include an async server with `/webhook`, `/health`, `/ping`, and `/` endpoints, plus a keep-alive system that pings every 10 minutes to prevent Render timeouts. This setup ensures continuous operation, efficient processing, and easy monitoring, making your bot more reliable on Render. Dependencies now include `aiohttp`. The code is optimized for deployment and stability.
+
+Task completed
+How was this result?
+Suggested follow-ups
+Send message to Manus
+bot_webhook.py
 import os
 import io
 import re
@@ -17,7 +220,6 @@ import firebase_admin
 from firebase_admin import credentials, db
 from dotenv import load_dotenv
 import pytesseract
-from flask import Flask, request, jsonify
 import asyncio
 import threading
 from telegram.error import TelegramError
@@ -26,6 +228,13 @@ import requests
 from datetime import datetime, timedelta
 import calendar
 import random
+import json
+from aiohttp import web, ClientSession
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ------------------ ENV ------------------
 load_dotenv()
@@ -34,11 +243,10 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 TELEBIRR_NUMBER = os.getenv("TELEBIRR_NUMBER")
 FIREBASE_DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("FIREBASE_DATABASE_URL")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Your Render app URL + /webhook
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Your Render app URL
 PORT = int(os.getenv("PORT", 5000))  # Render provides PORT environment variable
 
 # ------------------ Firebase ------------------
-import json
 cred_data = json.loads(os.getenv("FIREBASE_CRED_JSON"))
 cred = credentials.Certificate(cred_data)
 firebase_admin.initialize_app(cred, {
@@ -95,9 +303,9 @@ async def delayed_cleanup(paths, delay=300):  # 300 sec = 5 min
         try:
             if os.path.exists(path):
                 os.remove(path)
-                print(f"Deleted {path}")
+                logger.info(f"Deleted {path}")
         except Exception as e:
-            print(f"Cleanup error: {e}")
+            logger.error(f"Cleanup error: {e}")
 
 def add_demo_watermark(image_path, output_path):
     """Overlay multiple DEMO watermarks on the given image."""
@@ -492,7 +700,7 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=f"You don't have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the sms receipt message you recieve from telebirr."
                 )
         except Exception as e:
-            print("Send error:", e)
+            logger.error(f"Send error: {e}")
 
         # mark that we are awaiting a one-time receipt and which print request to fulfill
         context.user_data["awaiting_one_time_receipt"] = True
@@ -736,69 +944,54 @@ async def process_printing(pdf_id, context):
         # ✅ schedule delayed cleanup (5 minutes)
         asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
 
-# ------------------ Flask App for Webhook ------------------
-flask_app = Flask(__name__)
-
-# Global variables for the bot
+# ------------------ Webhook Server ------------------
 telegram_app = None
-loop = None
+start_time = time.time()
 
-def run_async_in_thread(coro):
-    """Run async function in the event loop thread"""
-    if loop and not loop.is_closed():
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=30)
-    else:
-        raise RuntimeError("Event loop is not running")
-
-@flask_app.route('/webhook', methods=['POST'])
-def webhook():
+async def webhook_handler(request):
     """Handle incoming webhook updates from Telegram"""
     try:
-        json_data = request.get_json()
+        json_data = await request.json()
         if json_data:
             update = Update.de_json(json_data, telegram_app.bot)
             # Process the update asynchronously
-            run_async_in_thread(telegram_app.process_update(update))
-        return jsonify({"status": "ok"})
+            await telegram_app.process_update(update)
+        return web.json_response({"status": "ok"})
     except Exception as e:
-        print(f"Webhook error: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"Webhook error: {e}")
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
 
-@flask_app.route('/health', methods=['GET'])
-def health():
+async def health_handler(request):
     """Health check endpoint for Render"""
-    return jsonify({
+    return web.json_response({
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "uptime": time.time() - start_time
     })
 
-@flask_app.route('/', methods=['GET'])
-def home():
+async def home_handler(request):
     """Home endpoint"""
-    return jsonify({
+    return web.json_response({
         "message": "Telegram Bot Webhook Server is running",
         "status": "active",
         "timestamp": datetime.utcnow().isoformat()
     })
 
-@flask_app.route('/ping', methods=['GET'])
-def ping():
+async def ping_handler(request):
     """Simple ping endpoint to keep the service alive"""
-    return jsonify({"pong": True, "timestamp": datetime.utcnow().isoformat()})
+    return web.json_response({"pong": True, "timestamp": datetime.utcnow().isoformat()})
 
-# Keep-alive mechanism
-def keep_alive():
+async def keep_alive():
     """Send periodic requests to keep the service alive"""
     while True:
         try:
             if WEBHOOK_URL:
-                response = requests.get(f"{WEBHOOK_URL}/ping", timeout=10)
-                print(f"Keep-alive ping: {response.status_code}")
+                async with ClientSession() as session:
+                    async with session.get(f"{WEBHOOK_URL}/ping", timeout=10) as response:
+                        logger.info(f"Keep-alive ping: {response.status}")
         except Exception as e:
-            print(f"Keep-alive error: {e}")
-        time.sleep(600)  # Ping every 10 minutes
+            logger.error(f"Keep-alive error: {e}")
+        await asyncio.sleep(600)  # Ping every 10 minutes
 
 async def setup_webhook():
     """Set up the webhook URL with Telegram"""
@@ -806,33 +999,14 @@ async def setup_webhook():
         webhook_url = f"{WEBHOOK_URL}/webhook"
         try:
             await telegram_app.bot.set_webhook(url=webhook_url)
-            print(f"Webhook set to: {webhook_url}")
+            logger.info(f"Webhook set to: {webhook_url}")
         except TelegramError as e:
-            print(f"Failed to set webhook: {e}")
+            logger.error(f"Failed to set webhook: {e}")
     else:
-        print("WEBHOOK_URL not set, webhook not configured")
+        logger.warning("WEBHOOK_URL not set, webhook not configured")
 
-def run_event_loop():
-    """Run the asyncio event loop in a separate thread"""
-    global loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Set up the webhook
-    loop.run_until_complete(setup_webhook())
-    
-    # Keep the loop running
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        loop.close()
-
-# ------------------ Main ------------------
-start_time = time.time()
-
-def create_app():
+async def init_app():
+    """Initialize the web application"""
     global telegram_app
     
     # Create the Telegram application
@@ -844,19 +1018,24 @@ def create_app():
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # Start the event loop in a separate thread
-    event_loop_thread = threading.Thread(target=run_event_loop, daemon=True)
-    event_loop_thread.start()
+    # Set up webhook
+    await setup_webhook()
 
-    # Start keep-alive mechanism in a separate thread
-    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
-    keep_alive_thread.start()
+    # Start keep-alive task
+    asyncio.create_task(keep_alive())
 
-    print("Bot webhook server started with keep-alive mechanism...")
-    return flask_app
+    # Create web app
+    app = web.Application()
+    app.router.add_post('/webhook', webhook_handler)
+    app.router.add_get('/health', health_handler)
+    app.router.add_get('/', home_handler)
+    app.router.add_get('/ping', ping_handler)
+
+    logger.info("Bot webhook server started with keep-alive mechanism...")
+    return app
 
 if __name__ == "__main__":
-    app = create_app()
-    # Run Flask app on all interfaces for Render deployment
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    # Run the web server
+    web.run_app(init_app(), host="0.0.0.0", port=PORT)
 
+Switch Telegram Bot from Long Polling to Webhook - Manus
