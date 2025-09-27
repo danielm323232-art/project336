@@ -766,6 +766,9 @@ async def health_handler(request):
         "timestamp": datetime.utcnow().isoformat(),
         "uptime": time.time() - start_time
     })
+async def on_shutdown(app):
+    await telegram_app.stop()
+    await telegram_app.shutdown()
 
 async def home_handler(request):
     """Home endpoint"""
@@ -804,9 +807,8 @@ async def setup_webhook():
         logger.warning("WEBHOOK_URL not set, webhook not configured")
 
 async def init_app():
-    """Initialize the web application"""
     global telegram_app
-    
+
     # Create the Telegram application
     telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -816,21 +818,27 @@ async def init_app():
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
+    # --- initialize PTB app manually ---
+    await telegram_app.initialize()
+    await telegram_app.start()
+
     # Set up webhook
     await setup_webhook()
 
     # Start keep-alive task
     asyncio.create_task(keep_alive())
 
-    # Create web app
+    # Create aiohttp app
     app = web.Application()
     app.router.add_post('/webhook', webhook_handler)
     app.router.add_get('/health', health_handler)
     app.router.add_get('/', home_handler)
     app.router.add_get('/ping', ping_handler)
+    app.on_shutdown.append(on_shutdown)
 
     logger.info("Bot webhook server started with keep-alive mechanism...")
     return app
+
 
 if __name__ == "__main__":
     app = asyncio.run(init_app())
