@@ -18,6 +18,9 @@ from firebase_admin import credentials, db
 from dotenv import load_dotenv
 import pytesseract
 
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
+
 # ------------------ ENV ------------------
 load_dotenv()
 
@@ -123,8 +126,6 @@ def add_demo_watermark(image_path, output_path):
     watermarked = Image.alpha_composite(img, watermark)
     watermarked.convert("RGB").save(output_path, "PNG")
 
-
-import pytesseract
 
 def extract_id_data(pdf_path):
     doc = fitz.open(pdf_path)

@@ -1,1 +1,9 @@
-apt-get update && apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev
+services:
+  - type: web
+    name: mybot
+    env: python
+    plan: free
+    buildCommand: |
+      apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-amh
+      pip install -r requirements.txt
+    startCommand: python bot.py
