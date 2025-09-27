@@ -21,6 +21,11 @@ from flask import Flask, request, jsonify
 import asyncio
 import threading
 from telegram.error import TelegramError
+import time
+import requests
+from datetime import datetime, timedelta
+import calendar
+import random
 
 # ------------------ ENV ------------------
 load_dotenv()
@@ -39,7 +44,6 @@ cred = credentials.Certificate(cred_data)
 firebase_admin.initialize_app(cred, {
     'databaseURL': FIREBASE_DATABASE_URL
 })
-
 
 # ------------------ Paths ------------------
 os.makedirs("pdfs", exist_ok=True)
@@ -63,8 +67,6 @@ def store_pdf(user_id, file_path):
         'allow': False
     })
     return pdf_id
-from datetime import datetime, timedelta
-import calendar
 
 def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     """
@@ -86,7 +88,6 @@ def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
         day = calendar.monthrange(year, month)[1] - (2 - day)
     
     return year, month, day
-import asyncio
 
 async def delayed_cleanup(paths, delay=300):  # 300 sec = 5 min
     await asyncio.sleep(delay)
@@ -97,6 +98,7 @@ async def delayed_cleanup(paths, delay=300):  # 300 sec = 5 min
                 print(f"Deleted {path}")
         except Exception as e:
             print(f"Cleanup error: {e}")
+
 def add_demo_watermark(image_path, output_path):
     """Overlay multiple DEMO watermarks on the given image."""
     img = Image.open(image_path).convert("RGBA")
@@ -128,9 +130,6 @@ def add_demo_watermark(image_path, output_path):
 
     watermarked = Image.alpha_composite(img, watermark)
     watermarked.convert("RGB").save(output_path, "PNG")
-
-
-import pytesseract
 
 def extract_id_data(pdf_path):
     doc = fitz.open(pdf_path)
@@ -230,12 +229,6 @@ def extract_id_data(pdf_path):
             data["issue_ec"] = data["issue_gc"] = ""
             data["expiry_ec"] = data["expiry_gc"] = ""
 
-        
-        
-
-
-
-
         # Now crop FIN and barcode for placing on card
         w, h = fin_img.size
         fin_crop = fin_img.crop((int(w * 0.63), int(h * 0.65), int(w * 0.91), int(h * 0.69)))
@@ -249,6 +242,7 @@ def extract_id_data(pdf_path):
 
     data["images"] = images
     return data
+
 def draw_rotated_text(base_img, text, position, angle, font, fill="black"):
     # 1. Create a temporary image for the text
     temp_img = Image.new("RGBA", (250, 50), (255, 255, 255, 0))  # transparent background
@@ -260,7 +254,6 @@ def draw_rotated_text(base_img, text, position, angle, font, fill="black"):
 
     # 3. Paste it onto the base image
     base_img.paste(rotated, position, rotated)
-
 
 def add_rounded_corners(img, radius_ratio=0.1):
     """Apply rounded corners to an image.
@@ -278,7 +271,6 @@ def add_rounded_corners(img, radius_ratio=0.1):
     rounded = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     rounded.paste(img, (0, 0), mask=mask)
     return rounded
-
 
 def remove_white_background(img, threshold=240):
     """Convert white background to transparent"""
@@ -303,7 +295,6 @@ def add_white_shadow(img, blur_radius=25, expand=25):
     shadow = Image.composite(shadow_draw, shadow, blurred_mask)
     combined = Image.alpha_composite(shadow, img)
     return combined
-import random
 
 def generate_number_str():
     number = random.randint(8_900_000, 9_500_000)
@@ -355,7 +346,7 @@ def create_id_card(data, template_path, output_path):
     draw.text((405, 210), data["name_en"], fill="black", font=font)
     draw.text((405, 300), f"{data['dob_ec']} | {data['dob_gc']}", fill="black", font=font)
     draw.text((405, 370), f"{data['sex_am']} | {data['sex']}", fill="black", font=font)
-    draw.text((405, 440), f"{data["expiry_ec"]} | {data["expiry_gc"]}", fill="black", font=font)
+    draw.text((405, 440), f"{data['expiry_ec']} | {data['expiry_gc']}", fill="black", font=font)
     draw_rotated_text(template, data["issue_ec"], (7,260), 90, fonts, fill="black")
     draw_rotated_text(template, data["issue_gc"], (7, 6), 90, fonts, fill="black")
 
@@ -369,7 +360,6 @@ def create_id_card(data, template_path, output_path):
     draw.text((1900, 570), generate_number_str(), fill="black", font=fontss)
 
     # --- Paste FAN barcode ---
-        # --- Paste FAN barcode ---
     if "barcode_img" in data["images"]:
         barcode_img = data["images"]["barcode_img"]
 
@@ -554,8 +544,6 @@ async def handle_payment_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     receipt_text = update.message.text
     requested_package = context.user_data.get("requested_package", 0)
 
-    
-
     # Store pending package request
     request_id = str(uuid.uuid4())
     db.reference(f'package_requests/{request_id}').set({
@@ -618,7 +606,6 @@ async def handle_one_time_payment(update: Update, context: ContextTypes.DEFAULT_
     )
 
     await update.message.reply_text("Your receipt was sent. Waiting for admin approval...")
-
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -718,7 +705,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup
             )
 
-
         else:  # disapprove
             db.reference(f'package_requests/{request_id}').update({'status': 'disapproved'})
             await query.edit_message_text("❌ Request disapproved.")
@@ -727,7 +713,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="❌ Your package request was disapproved. Please contact support."
             )
         return
-   
 
 async def process_printing(pdf_id, context):
     pdf_data = db.reference(f'pdfs/{pdf_id}').get()
@@ -782,13 +767,38 @@ def webhook():
 
 @flask_app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
-    return jsonify({"status": "healthy"})
+    """Health check endpoint for Render"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "uptime": time.time() - start_time
+    })
 
 @flask_app.route('/', methods=['GET'])
 def home():
     """Home endpoint"""
-    return jsonify({"message": "Telegram Bot Webhook Server is running"})
+    return jsonify({
+        "message": "Telegram Bot Webhook Server is running",
+        "status": "active",
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+@flask_app.route('/ping', methods=['GET'])
+def ping():
+    """Simple ping endpoint to keep the service alive"""
+    return jsonify({"pong": True, "timestamp": datetime.utcnow().isoformat()})
+
+# Keep-alive mechanism
+def keep_alive():
+    """Send periodic requests to keep the service alive"""
+    while True:
+        try:
+            if WEBHOOK_URL:
+                response = requests.get(f"{WEBHOOK_URL}/ping", timeout=10)
+                print(f"Keep-alive ping: {response.status_code}")
+        except Exception as e:
+            print(f"Keep-alive error: {e}")
+        time.sleep(600)  # Ping every 10 minutes
 
 async def setup_webhook():
     """Set up the webhook URL with Telegram"""
@@ -820,6 +830,8 @@ def run_event_loop():
         loop.close()
 
 # ------------------ Main ------------------
+start_time = time.time()
+
 def create_app():
     global telegram_app
     
@@ -836,7 +848,11 @@ def create_app():
     event_loop_thread = threading.Thread(target=run_event_loop, daemon=True)
     event_loop_thread.start()
 
-    print("Bot webhook server started...")
+    # Start keep-alive mechanism in a separate thread
+    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+    keep_alive_thread.start()
+
+    print("Bot webhook server started with keep-alive mechanism...")
     return flask_app
 
 if __name__ == "__main__":
