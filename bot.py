@@ -639,7 +639,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 final_path = last_req.get('final_path')
 
         if not final_path:
-            await query.edit_message_text(f"❗ Could not find the final image for user {user_id}. Ask them to resend or contact support.")
+            await query.edit_message_text(f"❗ Could not find the final image for user {user_id}.Resend image or contact support.")
             return
 
         if final_path and os.path.exists(final_path):
