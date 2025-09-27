@@ -404,6 +404,13 @@ def register_user(user_id, username):
             "allow": False,
             "package": 0
         })
+import asyncio
+import logging
+
+async def heartbeat():
+    while True:
+        logging.info("✅ Bot still alive...")
+        await asyncio.sleep(60)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -735,6 +742,8 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(CallbackQueryHandler(handle_callback))
+app.create_task(heartbeat())
 
 print("Bot started...")
-app.run_polling()
+
+app.run_polling(close_loop=False, stop_signals=None)
