@@ -833,5 +833,5 @@ async def init_app():
     return app
 
 if __name__ == "__main__":
-    # Run the web server
-    web.run_app(init_app(), host="0.0.0.0", port=PORT)
+    app = asyncio.run(init_app())
+    web.run_app(app, host="0.0.0.0", port=PORT)
