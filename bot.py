@@ -835,5 +835,3 @@ async def init_app():
 if __name__ == "__main__":
     # Run the web server
     web.run_app(init_app(), host="0.0.0.0", port=PORT)
-
-Switch Telegram Bot from Long Polling to Webhook - Manus
