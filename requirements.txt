@@ -6,3 +6,4 @@ PyMuPDF
 Pillow
 pytesseract
 requests
+flask

@@ -17,6 +17,10 @@ import firebase_admin
 from firebase_admin import credentials, db
 from dotenv import load_dotenv
 import pytesseract
+from flask import Flask, request, jsonify
+import asyncio
+import threading
+from telegram.error import TelegramError
 
 # ------------------ ENV ------------------
 load_dotenv()
@@ -25,6 +29,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 TELEBIRR_NUMBER = os.getenv("TELEBIRR_NUMBER")
 FIREBASE_DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("FIREBASE_DATABASE_URL")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Your Render app URL + /webhook
+PORT = int(os.getenv("PORT", 5000))  # Render provides PORT environment variable
 
 # ------------------ Firebase ------------------
 import json
@@ -404,13 +410,6 @@ def register_user(user_id, username):
             "allow": False,
             "package": 0
         })
-import asyncio
-import logging
-
-async def heartbeat():
-    while True:
-        logging.info("✅ Bot still alive...")
-        await asyncio.sleep(60)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -430,6 +429,83 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Welcome! Choose an option below:",
         reply_markup=reply_markup
     )
+
+async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    
+    # Check if user has packages
+    user_ref = db.reference(f'users/{user_id}')
+    user_data = user_ref.get() or {}
+    packages = user_data.get("package", 0)
+    
+    if packages > 0:
+        # User has packages, process normally
+        file = await update.message.document.get_file()
+        file_path = f"pdfs/{user_id}_{uuid.uuid4()}.pdf"
+        await file.download_to_drive(file_path)
+        
+        # Deduct one package
+        user_ref.update({"package": packages - 1})
+        
+        # Process the PDF
+        extracted = extract_id_data(file_path)
+        output_path = file_path.replace(".pdf", ".png")
+        create_id_card(extracted, TEMPLATE_PATH, output_path)
+        
+        try:
+            with open(output_path, "rb") as doc:
+                await update.message.reply_document(
+                    document=doc,
+                    caption=f"✅ ID card generated! Remaining packages: {packages - 1}",
+                    write_timeout=120,
+                    connect_timeout=60,
+                    read_timeout=60
+                )
+        finally:
+            # Schedule cleanup
+            asyncio.create_task(delayed_cleanup([file_path, output_path], delay=600))
+    else:
+        # User has no packages, show demo and ask for payment
+        file = await update.message.document.get_file()
+        file_path = f"pdfs/{user_id}_{uuid.uuid4()}.pdf"
+        await file.download_to_drive(file_path)
+        
+        # Process and create demo
+        extracted = extract_id_data(file_path)
+        demo_output = file_path.replace(".pdf", "_demo.png")
+        demo_watermarked = file_path.replace(".pdf", "_demo_watermarked.png")
+        
+        create_id_card(extracted, TEMPLATE_PATH, demo_output)
+        add_demo_watermark(demo_output, demo_watermarked)
+        
+        # Store PDF for later processing
+        pdf_id = store_pdf(user_id, file_path)
+        
+        # Save request in DB (store request_id so we can link one-time payment)
+        request_id = str(uuid.uuid4())
+        db.reference(f'print_requests/{request_id}').set({
+            'user_id': user_id,
+            'pdf_id': pdf_id,
+            'demo_path': demo_watermarked,
+            'final_path': demo_output,
+            'status': 'pending',
+            'created_at': datetime.utcnow().isoformat()
+        })
+
+        # keep the print request id in user's session so receipt can be linked
+        context.user_data["last_print_request"] = request_id
+
+        try:
+            with open(demo_watermarked, "rb") as demo_file:
+                await update.message.reply_photo(
+                    photo=demo_file,
+                    caption=f"You don't have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the sms receipt message you recieve from telebirr."
+                )
+        except Exception as e:
+            print("Send error:", e)
+
+        # mark that we are awaiting a one-time receipt and which print request to fulfill
+        context.user_data["awaiting_one_time_receipt"] = True
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -465,72 +541,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["requested_package"] = package_map[text]
 
         await update.message.reply_text(
-            f"You selected {text}.\nNow send payment to {TELEBIRR_NUMBER}. Then reply the sms reciept from telebirr to be approved."
+            f"You selected {text}.\nNow send payment to {TELEBIRR_NUMBER}. Then reply with the SMS receipt you receive from TeleBirr."
         )
 
     else:
-        await handle_payment_text(update, context)  # fallback for receipt
-
-
-async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    file = await update.message.document.get_file()
-    file_path = f"pdfs/{uuid.uuid4()}.pdf"
-    await file.download_to_drive(file_path)
-
-    pdf_id = store_pdf(user_id, file_path)
-
-    user_ref = db.reference(f'users/{user_id}')
-    user_data = user_ref.get() or {}
-
-    has_package = user_data.get("package", 0) > 0
-    is_allowed = user_data.get("allow", False)
-
-    if is_allowed or has_package:
-        await update.message.reply_text(f"Processing PDF {pdf_id}...")
-
-        # Deduct 1 package if available
-        if has_package:
-            new_package_count = max(0, user_data["package"] - 1)
-            user_ref.update({"package": new_package_count})
-
-        await process_printing(pdf_id, context)
-    else:
-        # Extract demo card
-        extracted = extract_id_data(file_path)
-        demo_output = file_path.replace(".pdf", "_demo.png")
-        create_id_card(extracted, TEMPLATE_PATH, demo_output)
-
-        demo_watermarked = file_path.replace(".pdf", "_demo_watermarked.png")
-        add_demo_watermark(demo_output, demo_watermarked)
-
-        # Save request in DB
-                # Save request in DB (store request_id so we can link one-time payment)
-        request_id = str(uuid.uuid4())
-        db.reference(f'print_requests/{request_id}').set({
-            'user_id': user_id,
-            'pdf_id': pdf_id,
-            'demo_path': demo_watermarked,
-            'final_path': demo_output,
-            'status': 'pending',
-            'created_at': datetime.utcnow().isoformat()
-        })
-
-        # keep the print request id in user's session so receipt can be linked
-        context.user_data["last_print_request"] = request_id
-
-        try:
-            with open(demo_watermarked, "rb") as demo_file:
-                await update.message.reply_photo(
-                    photo=demo_file,
-                    caption=f"You don’t have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the sms receipt message you recieve from telebirr."
-                )
-        except Exception as e:
-            print("Send error:", e)
-
-        # mark that we are awaiting a one-time receipt and which print request to fulfill
-        context.user_data["awaiting_one_time_receipt"] = True
-
+        # Check if this is a payment receipt
+        if context.user_data.get("requested_package", 0) > 0:
+            await handle_payment_text(update, context)
 
 async def handle_payment_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -734,16 +751,96 @@ async def process_printing(pdf_id, context):
         # ✅ schedule delayed cleanup (5 minutes)
         asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
 
+# ------------------ Flask App for Webhook ------------------
+flask_app = Flask(__name__)
+
+# Global variables for the bot
+telegram_app = None
+loop = None
+
+def run_async_in_thread(coro):
+    """Run async function in the event loop thread"""
+    if loop and not loop.is_closed():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=30)
+    else:
+        raise RuntimeError("Event loop is not running")
+
+@flask_app.route('/webhook', methods=['POST'])
+def webhook():
+    """Handle incoming webhook updates from Telegram"""
+    try:
+        json_data = request.get_json()
+        if json_data:
+            update = Update.de_json(json_data, telegram_app.bot)
+            # Process the update asynchronously
+            run_async_in_thread(telegram_app.process_update(update))
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@flask_app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy"})
+
+@flask_app.route('/', methods=['GET'])
+def home():
+    """Home endpoint"""
+    return jsonify({"message": "Telegram Bot Webhook Server is running"})
+
+async def setup_webhook():
+    """Set up the webhook URL with Telegram"""
+    if WEBHOOK_URL:
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        try:
+            await telegram_app.bot.set_webhook(url=webhook_url)
+            print(f"Webhook set to: {webhook_url}")
+        except TelegramError as e:
+            print(f"Failed to set webhook: {e}")
+    else:
+        print("WEBHOOK_URL not set, webhook not configured")
+
+def run_event_loop():
+    """Run the asyncio event loop in a separate thread"""
+    global loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Set up the webhook
+    loop.run_until_complete(setup_webhook())
+    
+    # Keep the loop running
+    try:
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.close()
 
 # ------------------ Main ------------------
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+def create_app():
+    global telegram_app
+    
+    # Create the Telegram application
+    telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-app.add_handler(CallbackQueryHandler(handle_callback))
-app.create_task(heartbeat())
+    # Add handlers
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
-print("Bot started...")
+    # Start the event loop in a separate thread
+    event_loop_thread = threading.Thread(target=run_event_loop, daemon=True)
+    event_loop_thread.start()
 
-app.run_polling(close_loop=False, stop_signals=None)
+    print("Bot webhook server started...")
+    return flask_app
+
+if __name__ == "__main__":
+    app = create_app()
+    # Run Flask app on all interfaces for Render deployment
+    app.run(host="0.0.0.0", port=PORT, debug=False)
+
