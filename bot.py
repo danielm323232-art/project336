@@ -1,4 +1,3 @@
-
 import os
 import io
 import re
@@ -18,21 +17,6 @@ import firebase_admin
 from firebase_admin import credentials, db
 from dotenv import load_dotenv
 import pytesseract
-import asyncio
-import threading
-from telegram.error import TelegramError
-import time
-import requests
-from datetime import datetime, timedelta
-import calendar
-import random
-import json
-from aiohttp import web, ClientSession
-import logging
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # ------------------ ENV ------------------
 load_dotenv()
@@ -41,15 +25,15 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 TELEBIRR_NUMBER = os.getenv("TELEBIRR_NUMBER")
 FIREBASE_DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("FIREBASE_DATABASE_URL")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Your Render app URL
-PORT = int(os.getenv("PORT", 5000))  # Render provides PORT environment variable
 
 # ------------------ Firebase ------------------
+import json
 cred_data = json.loads(os.getenv("FIREBASE_CRED_JSON"))
 cred = credentials.Certificate(cred_data)
 firebase_admin.initialize_app(cred, {
     'databaseURL': FIREBASE_DATABASE_URL
 })
+
 
 # ------------------ Paths ------------------
 os.makedirs("pdfs", exist_ok=True)
@@ -73,6 +57,8 @@ def store_pdf(user_id, file_path):
         'allow': False
     })
     return pdf_id
+from datetime import datetime, timedelta
+import calendar
 
 def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     """
@@ -94,6 +80,7 @@ def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
         day = calendar.monthrange(year, month)[1] - (2 - day)
     
     return year, month, day
+import asyncio
 
 async def delayed_cleanup(paths, delay=300):  # 300 sec = 5 min
     await asyncio.sleep(delay)
@@ -101,10 +88,9 @@ async def delayed_cleanup(paths, delay=300):  # 300 sec = 5 min
         try:
             if os.path.exists(path):
                 os.remove(path)
-                logger.info(f"Deleted {path}")
+                print(f"Deleted {path}")
         except Exception as e:
-            logger.error(f"Cleanup error: {e}")
-
+            print(f"Cleanup error: {e}")
 def add_demo_watermark(image_path, output_path):
     """Overlay multiple DEMO watermarks on the given image."""
     img = Image.open(image_path).convert("RGBA")
@@ -136,6 +122,9 @@ def add_demo_watermark(image_path, output_path):
 
     watermarked = Image.alpha_composite(img, watermark)
     watermarked.convert("RGB").save(output_path, "PNG")
+
+
+import pytesseract
 
 def extract_id_data(pdf_path):
     doc = fitz.open(pdf_path)
@@ -235,6 +224,12 @@ def extract_id_data(pdf_path):
             data["issue_ec"] = data["issue_gc"] = ""
             data["expiry_ec"] = data["expiry_gc"] = ""
 
+        
+        
+
+
+
+
         # Now crop FIN and barcode for placing on card
         w, h = fin_img.size
         fin_crop = fin_img.crop((int(w * 0.63), int(h * 0.65), int(w * 0.91), int(h * 0.69)))
@@ -248,7 +243,6 @@ def extract_id_data(pdf_path):
 
     data["images"] = images
     return data
-
 def draw_rotated_text(base_img, text, position, angle, font, fill="black"):
     # 1. Create a temporary image for the text
     temp_img = Image.new("RGBA", (250, 50), (255, 255, 255, 0))  # transparent background
@@ -260,6 +254,7 @@ def draw_rotated_text(base_img, text, position, angle, font, fill="black"):
 
     # 3. Paste it onto the base image
     base_img.paste(rotated, position, rotated)
+
 
 def add_rounded_corners(img, radius_ratio=0.1):
     """Apply rounded corners to an image.
@@ -277,6 +272,7 @@ def add_rounded_corners(img, radius_ratio=0.1):
     rounded = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     rounded.paste(img, (0, 0), mask=mask)
     return rounded
+
 
 def remove_white_background(img, threshold=240):
     """Convert white background to transparent"""
@@ -301,6 +297,7 @@ def add_white_shadow(img, blur_radius=25, expand=25):
     shadow = Image.composite(shadow_draw, shadow, blurred_mask)
     combined = Image.alpha_composite(shadow, img)
     return combined
+import random
 
 def generate_number_str():
     number = random.randint(8_900_000, 9_500_000)
@@ -352,7 +349,7 @@ def create_id_card(data, template_path, output_path):
     draw.text((405, 210), data["name_en"], fill="black", font=font)
     draw.text((405, 300), f"{data['dob_ec']} | {data['dob_gc']}", fill="black", font=font)
     draw.text((405, 370), f"{data['sex_am']} | {data['sex']}", fill="black", font=font)
-    draw.text((405, 440), f"{data['expiry_ec']} | {data['expiry_gc']}", fill="black", font=font)
+    draw.text((405, 440), f"{data["expiry_ec"]} | {data["expiry_gc"]}", fill="black", font=font)
     draw_rotated_text(template, data["issue_ec"], (7,260), 90, fonts, fill="black")
     draw_rotated_text(template, data["issue_gc"], (7, 6), 90, fonts, fill="black")
 
@@ -366,6 +363,7 @@ def create_id_card(data, template_path, output_path):
     draw.text((1900, 570), generate_number_str(), fill="black", font=fontss)
 
     # --- Paste FAN barcode ---
+        # --- Paste FAN barcode ---
     if "barcode_img" in data["images"]:
         barcode_img = data["images"]["barcode_img"]
 
@@ -426,83 +424,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    
-    # Check if user has packages
-    user_ref = db.reference(f'users/{user_id}')
-    user_data = user_ref.get() or {}
-    packages = user_data.get("package", 0)
-    
-    if packages > 0:
-        # User has packages, process normally
-        file = await update.message.document.get_file()
-        file_path = f"pdfs/{user_id}_{uuid.uuid4()}.pdf"
-        await file.download_to_drive(file_path)
-        
-        # Deduct one package
-        user_ref.update({"package": packages - 1})
-        
-        # Process the PDF
-        extracted = extract_id_data(file_path)
-        output_path = file_path.replace(".pdf", ".png")
-        create_id_card(extracted, TEMPLATE_PATH, output_path)
-        
-        try:
-            with open(output_path, "rb") as doc:
-                await update.message.reply_document(
-                    document=doc,
-                    caption=f"✅ ID card generated! Remaining packages: {packages - 1}",
-                    write_timeout=120,
-                    connect_timeout=60,
-                    read_timeout=60
-                )
-        finally:
-            # Schedule cleanup
-            asyncio.create_task(delayed_cleanup([file_path, output_path], delay=600))
-    else:
-        # User has no packages, show demo and ask for payment
-        file = await update.message.document.get_file()
-        file_path = f"pdfs/{user_id}_{uuid.uuid4()}.pdf"
-        await file.download_to_drive(file_path)
-        
-        # Process and create demo
-        extracted = extract_id_data(file_path)
-        demo_output = file_path.replace(".pdf", "_demo.png")
-        demo_watermarked = file_path.replace(".pdf", "_demo_watermarked.png")
-        
-        create_id_card(extracted, TEMPLATE_PATH, demo_output)
-        add_demo_watermark(demo_output, demo_watermarked)
-        
-        # Store PDF for later processing
-        pdf_id = store_pdf(user_id, file_path)
-        
-        # Save request in DB (store request_id so we can link one-time payment)
-        request_id = str(uuid.uuid4())
-        db.reference(f'print_requests/{request_id}').set({
-            'user_id': user_id,
-            'pdf_id': pdf_id,
-            'demo_path': demo_watermarked,
-            'final_path': demo_output,
-            'status': 'pending',
-            'created_at': datetime.utcnow().isoformat()
-        })
-
-        # keep the print request id in user's session so receipt can be linked
-        context.user_data["last_print_request"] = request_id
-
-        try:
-            with open(demo_watermarked, "rb") as demo_file:
-                await update.message.reply_photo(
-                    photo=demo_file,
-                    caption=f"You don't have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the sms receipt message you recieve from telebirr."
-                )
-        except Exception as e:
-            logger.error(f"Send error: {e}")
-
-        # mark that we are awaiting a one-time receipt and which print request to fulfill
-        context.user_data["awaiting_one_time_receipt"] = True
-
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.from_user.id
@@ -537,18 +458,79 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["requested_package"] = package_map[text]
 
         await update.message.reply_text(
-            f"You selected {text}.\nNow send payment to {TELEBIRR_NUMBER}. Then reply with the SMS receipt you receive from TeleBirr."
+            f"You selected {text}.\nNow send payment to {TELEBIRR_NUMBER}. Then reply the sms reciept from telebirr to be approved."
         )
 
     else:
-        # Check if this is a payment receipt
-        if context.user_data.get("requested_package", 0) > 0:
-            await handle_payment_text(update, context)
+        await handle_payment_text(update, context)  # fallback for receipt
+
+
+async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    file = await update.message.document.get_file()
+    file_path = f"pdfs/{uuid.uuid4()}.pdf"
+    await file.download_to_drive(file_path)
+
+    pdf_id = store_pdf(user_id, file_path)
+
+    user_ref = db.reference(f'users/{user_id}')
+    user_data = user_ref.get() or {}
+
+    has_package = user_data.get("package", 0) > 0
+    is_allowed = user_data.get("allow", False)
+
+    if is_allowed or has_package:
+        await update.message.reply_text(f"Processing PDF {pdf_id}...")
+
+        # Deduct 1 package if available
+        if has_package:
+            new_package_count = max(0, user_data["package"] - 1)
+            user_ref.update({"package": new_package_count})
+
+        await process_printing(pdf_id, context)
+    else:
+        # Extract demo card
+        extracted = extract_id_data(file_path)
+        demo_output = file_path.replace(".pdf", "_demo.png")
+        create_id_card(extracted, TEMPLATE_PATH, demo_output)
+
+        demo_watermarked = file_path.replace(".pdf", "_demo_watermarked.png")
+        add_demo_watermark(demo_output, demo_watermarked)
+
+        # Save request in DB
+                # Save request in DB (store request_id so we can link one-time payment)
+        request_id = str(uuid.uuid4())
+        db.reference(f'print_requests/{request_id}').set({
+            'user_id': user_id,
+            'pdf_id': pdf_id,
+            'demo_path': demo_watermarked,
+            'final_path': demo_output,
+            'status': 'pending',
+            'created_at': datetime.utcnow().isoformat()
+        })
+
+        # keep the print request id in user's session so receipt can be linked
+        context.user_data["last_print_request"] = request_id
+
+        try:
+            with open(demo_watermarked, "rb") as demo_file:
+                await update.message.reply_photo(
+                    photo=demo_file,
+                    caption=f"You don’t have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the sms receipt message you recieve from telebirr."
+                )
+        except Exception as e:
+            print("Send error:", e)
+
+        # mark that we are awaiting a one-time receipt and which print request to fulfill
+        context.user_data["awaiting_one_time_receipt"] = True
+
 
 async def handle_payment_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     receipt_text = update.message.text
     requested_package = context.user_data.get("requested_package", 0)
+
+    
 
     # Store pending package request
     request_id = str(uuid.uuid4())
@@ -612,6 +594,7 @@ async def handle_one_time_payment(update: Update, context: ContextTypes.DEFAULT_
     )
 
     await update.message.reply_text("Your receipt was sent. Waiting for admin approval...")
+
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -711,6 +694,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup
             )
 
+
         else:  # disapprove
             db.reference(f'package_requests/{request_id}').update({'status': 'disapproved'})
             await query.edit_message_text("❌ Request disapproved.")
@@ -719,6 +703,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="❌ Your package request was disapproved. Please contact support."
             )
         return
+   
 
 async def process_printing(pdf_id, context):
     pdf_data = db.reference(f'pdfs/{pdf_id}').get()
@@ -742,104 +727,14 @@ async def process_printing(pdf_id, context):
         # ✅ schedule delayed cleanup (5 minutes)
         asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
 
-# ------------------ Webhook Server ------------------
-telegram_app = None
-start_time = time.time()
 
-async def webhook_handler(request):
-    """Handle incoming webhook updates from Telegram"""
-    try:
-        json_data = await request.json()
-        if json_data:
-            update = Update.de_json(json_data, telegram_app.bot)
-            # Process the update asynchronously
-            await telegram_app.process_update(update)
-        return web.json_response({"status": "ok"})
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return web.json_response({"status": "error", "message": str(e)}, status=500)
+# ------------------ Main ------------------
+app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-async def health_handler(request):
-    """Health check endpoint for Render"""
-    return web.json_response({
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "uptime": time.time() - start_time
-    })
-async def on_shutdown(app):
-    await telegram_app.stop()
-    await telegram_app.shutdown()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+app.add_handler(CallbackQueryHandler(handle_callback))
 
-async def home_handler(request):
-    """Home endpoint"""
-    return web.json_response({
-        "message": "Telegram Bot Webhook Server is running",
-        "status": "active",
-        "timestamp": datetime.utcnow().isoformat()
-    })
-
-async def ping_handler(request):
-    """Simple ping endpoint to keep the service alive"""
-    return web.json_response({"pong": True, "timestamp": datetime.utcnow().isoformat()})
-
-async def keep_alive():
-    """Send periodic requests to keep the service alive"""
-    while True:
-        try:
-            if WEBHOOK_URL:
-                async with ClientSession() as session:
-                    async with session.get(f"{WEBHOOK_URL}/ping", timeout=10) as response:
-                        logger.info(f"Keep-alive ping: {response.status}")
-        except Exception as e:
-            logger.error(f"Keep-alive error: {e}")
-        await asyncio.sleep(600)  # Ping every 10 minutes
-
-async def setup_webhook():
-    """Set up the webhook URL with Telegram"""
-    if WEBHOOK_URL:
-        webhook_url = f"{WEBHOOK_URL}/webhook"
-        try:
-            await telegram_app.bot.set_webhook(url=webhook_url)
-            logger.info(f"Webhook set to: {webhook_url}")
-        except TelegramError as e:
-            logger.error(f"Failed to set webhook: {e}")
-    else:
-        logger.warning("WEBHOOK_URL not set, webhook not configured")
-
-async def init_app():
-    global telegram_app
-
-    # Create the Telegram application
-    telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-    # Add handlers
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    telegram_app.add_handler(CallbackQueryHandler(handle_callback))
-
-    # --- initialize PTB app manually ---
-    await telegram_app.initialize()
-    await telegram_app.start()
-
-    # Set up webhook
-    await setup_webhook()
-
-    # Start keep-alive task
-    asyncio.create_task(keep_alive())
-
-    # Create aiohttp app
-    app = web.Application()
-    app.router.add_post('/webhook', webhook_handler)
-    app.router.add_get('/health', health_handler)
-    app.router.add_get('/', home_handler)
-    app.router.add_get('/ping', ping_handler)
-    app.on_shutdown.append(on_shutdown)
-
-    logger.info("Bot webhook server started with keep-alive mechanism...")
-    return app
-
-
-if __name__ == "__main__":
-    app = asyncio.run(init_app())
-    web.run_app(app, host="0.0.0.0", port=PORT)
+print("Bot started...")
+app.run_polling()
