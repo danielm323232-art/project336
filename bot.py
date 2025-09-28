@@ -743,10 +743,11 @@ async def process_printing(pdf_id, context):
 
 # ------------------ Main ------------------
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
+# ---------------- FastAPI App ----------------
 from fastapi import FastAPI, Request
+
 app = FastAPI()
 
-# Build Telegram application
 telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 # Register handlers
@@ -755,21 +756,29 @@ telegram_app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
-# Startup: set webhook
+# Root (for Render health checks)
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
+# Startup hook
 @app.on_event("startup")
 async def startup_event():
-    await telegram_app.bot.set_webhook(url=WEBHOOK_URL)
-    print(f"Webhook set to {WEBHOOK_URL}")
+    await telegram_app.initialize()   # ✅ required
+    await telegram_app.start()        # ✅ required
+    await telegram_app.bot.set_webhook(url=os.environ["WEBHOOK_URL"])
+    print("Webhook set")
 
-# Shutdown: cleanup
+# Shutdown hook
 @app.on_event("shutdown")
 async def shutdown_event():
     await telegram_app.stop()
+    await telegram_app.shutdown()
 
-# Webhook endpoint for Telegram
+# Webhook receiver
 @app.post("/webhook")
 async def telegram_webhook(req: Request):
     data = await req.json()
     update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.process_update(update)
+    await telegram_app.process_update(update)   # now safe
     return {"ok": True}
