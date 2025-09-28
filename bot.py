@@ -200,6 +200,7 @@ def extract_id_data(pdf_path):
 
 
         print("OCR text:", repr(ocr_text))
+        print("issue:", repr(issue_matches))
 
         if issue_matches:
             ecs, gcs = [part.strip() for part in issue_matches[0]]
