@@ -196,16 +196,19 @@ def extract_id_data(pdf_path):
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
 
         # Extract issue/expiry dates
-        issue_matches = re.findall(r"(\d{2,4}\s*\d{2}\s*/\s*\d{2}\s*/\s*\d{2})\s*[|Il1\- ]?\s*(\d{4}\s*/\s*[A-Za-z]{3}\s*/\s*\d{2})",ocr_text)
+        issue_matches = re.findall(r"(\d[\d\sዐ]+/\s*\d+/\s*\d+)\s*[|Il1\- ]?\s*(\d{4}\s*/\s*[A-Za-z]{3}\s*/\s*\d{2})",ocr_text)
 
 
         print("OCR text:", repr(ocr_text))
         print("issue:", repr(issue_matches))
 
         if issue_matches:
-            ecs, gcs = [part.strip() for part in issue_matches[0]]
-            ec = ecs.replace(" ", "")
-            gc = gcs.replace(" ", "")
+            ec_raw, gc_raw = issue_matches[0]
+
+            # Keep only digits and slashes in EC
+            ec = re.sub(r"[^0-9/]", "", ec_raw)
+            gc = gc_raw.replace(" ", "")
+
             data["issue_ec"] = ec
             data["issue_gc"] = gc
 
