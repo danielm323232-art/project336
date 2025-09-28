@@ -202,11 +202,12 @@ def extract_id_data(pdf_path):
         print("OCR text:", repr(ocr_text))
 
         if issue_matches:
-            ecs, gcs = [part.strip() for part in issue_matches[0].split("|", 1)]
+            ecs, gcs = [part.strip() for part in issue_matches[0]]
             ec = ecs.replace(" ", "")
             gc = gcs.replace(" ", "")
             data["issue_ec"] = ec
             data["issue_gc"] = gc
+
             try:
                 ec_y, ec_m, ec_d = map(int, ec.split("/"))
                 expiry_ec_y, expiry_ec_m, expiry_ec_d = adjust_expiry(ec_y, ec_m, ec_d)
