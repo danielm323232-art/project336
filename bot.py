@@ -80,7 +80,7 @@ def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
             month = 12
             year -= 1
         day = calendar.monthrange(year, month)[1] - (2 - day)
-    
+    print("changed date ")
     return year, month, day
 import asyncio
 
