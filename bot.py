@@ -196,12 +196,15 @@ def extract_id_data(pdf_path):
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
 
         # Extract issue/expiry dates
-        issue_matches = re.findall(r"(\d{4}/\d{2}/\d{2})\s*[|Il1]?\s*(\d{4}/[A-Za-z]{3}/\d{2})",ocr_text)
+        issue_matches = re.findall(r"(\d{2,4}\s*\d{2}\s*/\s*\d{2}\s*/\s*\d{2})\s*[|Il1\- ]?\s*(\d{4}\s*/\s*[A-Za-z]{3}\s*/\s*\d{2})",ocr_text)
+
 
         print("OCR text:", repr(ocr_text))
 
         if issue_matches:
-            ec, gc = [part.strip() for part in issue_matches[0].split("|", 1)]
+            ecs, gcs = [part.strip() for part in issue_matches[0].split("|", 1)]
+            ec = ecs.replace(" ", "")
+            gc = gcs.replace(" ", "")
             data["issue_ec"] = ec
             data["issue_gc"] = gc
             try:
@@ -709,30 +712,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
    
+import asyncio
+semaphore = asyncio.Semaphore(2)  # only 2 PDFs at a time
 
 async def process_printing(pdf_id, context):
-    pdf_data = db.reference(f'pdfs/{pdf_id}').get()
-    if not pdf_data:
-        return
+    async with semaphore:
+        pdf_data = db.reference(f'pdfs/{pdf_id}').get()
+        if not pdf_data:
+            return
 
-    # Run heavy CPU-bound tasks in threads
-    extracted = await asyncio.to_thread(extract_id_data, pdf_data['file_path'])
-    output_path = pdf_data['file_path'].replace(".pdf", ".png")
-    await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
+        extracted = await asyncio.to_thread(extract_id_data, pdf_data['file_path'])
+        output_path = pdf_data['file_path'].replace(".pdf", ".png")
+        await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
 
-    try:
-        # Sending file is fine as async
-        with open(output_path, "rb") as doc:
-            await context.bot.send_document(
-                chat_id=pdf_data['user_id'],
-                document=doc,
-                write_timeout=120,
-                connect_timeout=60,
-                read_timeout=60
-            )
-    finally:
-        # ✅ schedule delayed cleanup
-        asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
+        try:
+            with open(output_path, "rb") as doc:
+                await context.bot.send_document(chat_id=pdf_data['user_id'], document=doc)
+        finally:
+            asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
 
 # ------------------ Main ------------------
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
