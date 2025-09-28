@@ -17,7 +17,9 @@ import firebase_admin
 from firebase_admin import credentials, db
 from dotenv import load_dotenv
 import pytesseract
-
+import os
+import asyncio
+import aiohttp
 # ------------------ ENV ------------------
 load_dotenv()
 
@@ -41,7 +43,7 @@ os.makedirs("outputs", exist_ok=True)
 
 TEMPLATE_PATH = "LAST.png"
 FONT_PATH = "NotoSansEthiopic-ExtraBold.ttf"
-
+GETME_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getMe"
 # ------------------ Helpers ------------------
 def is_user_allowed(user_id):
     ref = db.reference(f'users/{user_id}')
@@ -423,6 +425,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Welcome! Choose an option below:",
         reply_markup=reply_markup
     )
+async def keepalive_loop(interval_seconds: int = 4 * 60):
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(GETME_URL, timeout=10) as resp:
+                    # optional: check status or json
+                    await resp.text()
+            except Exception as e:
+                # log error but keep going
+                print("keepalive error:", e)
+            await asyncio.sleep(interval_seconds)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -730,6 +743,10 @@ async def process_printing(pdf_id, context):
 
 # ------------------ Main ------------------
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+async def on_startup(app):
+    app.create_task(keepalive_loop())   # python-telegram-bot v20 style
+app.post_init = on_startup
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
