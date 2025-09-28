@@ -198,6 +198,7 @@ def extract_id_data(pdf_path):
         # Extract issue/expiry dates
         issue_matches = re.findall(r"(\d{4}/\d{2}/\d{2})\s*[|Il1]?\s*(\d{4}/[A-Za-z]{3}/\d{2})",ocr_text)
 
+        print("OCR text:", repr(ocr_text))
 
         if issue_matches:
             ec, gc = [part.strip() for part in issue_matches[0].split("|", 1)]
