@@ -715,12 +715,13 @@ async def process_printing(pdf_id, context):
     if not pdf_data:
         return
 
+    # Run heavy CPU-bound tasks in threads
     extracted = await asyncio.to_thread(extract_id_data, pdf_data['file_path'])
     output_path = pdf_data['file_path'].replace(".pdf", ".png")
     await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
 
-
     try:
+        # Sending file is fine as async
         with open(output_path, "rb") as doc:
             await context.bot.send_document(
                 chat_id=pdf_data['user_id'],
@@ -730,9 +731,8 @@ async def process_printing(pdf_id, context):
                 read_timeout=60
             )
     finally:
-        # ✅ schedule delayed cleanup (5 minutes)
+        # ✅ schedule delayed cleanup
         asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
-
 
 # ------------------ Main ------------------
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
