@@ -196,7 +196,7 @@ def extract_id_data(pdf_path):
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
 
         # Extract issue/expiry dates
-        issue_matches = re.findall(r"\d{4}/[0-9]{2}/[0-9]{2}\s*\|\s*\d{4}/[A-Za-z]{3}/[0-9]{2}", ocr_text)
+        issue_matches = re.findall(r"(\d{4}/\d{2}/\d{2})\s*[\|\iIl1]?\s*(\d{4}/[A-Za-z]{3}/\d{2})",ocr_text)
 
         if issue_matches:
             ec, gc = [part.strip() for part in issue_matches[0].split("|", 1)]
@@ -425,17 +425,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Welcome! Choose an option below:",
         reply_markup=reply_markup
     )
-async def keepalive_loop(interval_seconds: int = 4 * 60):
-    async with aiohttp.ClientSession() as session:
-        while True:
-            try:
-                async with session.get(GETME_URL, timeout=10) as resp:
-                    # optional: check status or json
-                    await resp.text()
-            except Exception as e:
-                # log error but keep going
-                print("keepalive error:", e)
-            await asyncio.sleep(interval_seconds)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -502,6 +491,7 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await process_printing(pdf_id, context)
     else:
+        await update.message.reply_text(f"Processing PDF {pdf_id}...")
         # Extract demo card
         extracted = extract_id_data(file_path)
         demo_output = file_path.replace(".pdf", "_demo.png")
