@@ -494,12 +494,12 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"Processing PDF {pdf_id}...")
         # Extract demo card
-        extracted = extract_id_data(file_path)
+        extracted = await asyncio.to_thread(extract_id_data, file_path)
         demo_output = file_path.replace(".pdf", "_demo.png")
-        create_id_card(extracted, TEMPLATE_PATH, demo_output)
+        await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, demo_output)
 
         demo_watermarked = file_path.replace(".pdf", "_demo_watermarked.png")
-        add_demo_watermark(demo_output, demo_watermarked)
+        await asyncio.to_thread(add_demo_watermark, demo_output, demo_watermarked)
 
         # Save request in DB
                 # Save request in DB (store request_id so we can link one-time payment)
@@ -714,9 +714,10 @@ async def process_printing(pdf_id, context):
     if not pdf_data:
         return
 
-    extracted = extract_id_data(pdf_data['file_path'])
+    extracted = await asyncio.to_thread(extract_id_data, pdf_data['file_path'])
     output_path = pdf_data['file_path'].replace(".pdf", ".png")
-    create_id_card(extracted, TEMPLATE_PATH, output_path)
+    await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
+
 
     try:
         with open(output_path, "rb") as doc:
