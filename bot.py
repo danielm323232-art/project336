@@ -196,7 +196,8 @@ def extract_id_data(pdf_path):
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
 
         # Extract issue/expiry dates
-        issue_matches = re.findall(r"(\d{4}/\d{2}/\d{2})\s*[\|\iIl1]?\s*(\d{4}/[A-Za-z]{3}/\d{2})",ocr_text)
+        issue_matches = re.findall(r"(\d{4}/\d{2}/\d{2})\s*[|Il1]?\s*(\d{4}/[A-Za-z]{3}/\d{2})",ocr_text)
+
 
         if issue_matches:
             ec, gc = [part.strip() for part in issue_matches[0].split("|", 1)]
@@ -770,5 +771,6 @@ async def shutdown_event():
 async def telegram_webhook(req: Request):
     data = await req.json()
     update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.process_update(update)   # now safe
+    # process in background so webhook returns fast
+    asyncio.create_task(telegram_app.process_update(update))
     return {"ok": True}
