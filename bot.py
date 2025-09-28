@@ -50,15 +50,21 @@ def is_user_allowed(user_id):
     user = ref.get()
     return user and user.get("allow") is True
 
-def store_pdf(user_id, file_path):
+def store_pdf(user_id, file_path, original_name):
     pdf_id = str(uuid.uuid4())
+    new_filename = f"{pdf_id}_{original_name}"   # keep original name with ID prefix
+    new_path = os.path.join("pdfs", new_filename)
+
+    os.rename(file_path, new_path)  # move/rename the file
+
     db.reference(f'pdfs/{pdf_id}').set({
         'user_id': user_id,
-        'file_path': file_path,
+        'file_path': new_path,
         'status': 'pending',
         'allow': False
     })
     return pdf_id
+
 from datetime import datetime, timedelta
 import calendar
 
@@ -545,10 +551,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     file = await update.message.document.get_file()
-    file_path = f"pdfs/{uuid.uuid4()}.pdf"
-    await file.download_to_drive(file_path)
+    original_name = update.message.document.file_name   # <-- Telegram gives you the original name
+    temp_path = f"pdfs/{uuid.uuid4()}.pdf"
+    await file.download_to_drive(temp_path)
 
-    pdf_id = store_pdf(user_id, file_path)
+    pdf_id = store_pdf(user_id, temp_path, original_name)
+
 
     user_ref = db.reference(f'users/{user_id}')
     user_data = user_ref.get() or {}
@@ -792,9 +800,12 @@ async def process_printing(pdf_id, context):
             return
 
         extracted = await asyncio.to_thread(extract_id_data, pdf_data['file_path'])
-        filename = os.path.basename(pdf_data['file_path'])  # e.g. efayda_something.pdf
-        clean_name = filename.replace("efayda_", "")        # remove the prefix
+        filename = os.path.basename(pdf_data['file_path'])  # e.g. UUID_efayda_something.pdf
+        # remove UUID_ prefix
+        filename = "_".join(filename.split("_")[1:])  # efayda_something.pdf
+        clean_name = filename.replace("efayda_", "")  # something.pdf
         output_path = os.path.join("outputs", clean_name.replace(".pdf", ".png"))
+
         await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
 
         try:
