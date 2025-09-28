@@ -125,7 +125,56 @@ def add_demo_watermark(image_path, output_path):
     watermarked = Image.alpha_composite(img, watermark)
     watermarked.convert("RGB").save(output_path, "PNG")
 
+def _clean_gc(s):
+    # remove amharic letters, tidy slashes and spaces, try to find "YYYY/Mon/DD"
+    s = re.sub(r'[\u1200-\u137F]+', '', s)
+    s = re.sub(r'\s*/\s*', '/', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    s = re.sub(r'[^0-9A-Za-z/ ]', '', s)
+    m = re.search(r'(\d{4}/[A-Za-z]{3}/\d{1,2})', s)
+    if m:
+        return m.group(1).replace(' ', '')
+    # fallback: compact any year/month/day present
+    m2 = re.search(r'(\d{4}/\s*[A-Za-z]{3}/\s*\d{1,2})', s)
+    if m2:
+        return re.sub(r'\s*/\s*', '/', m2.group(1))
+    return None
 
+def _build_ec_from_text(left_snip):
+    # remove amharic letters only for the date area, keep numeric groups
+    s = re.sub(r'[\u1200-\u137F]+', ' ', left_snip)
+    nums = re.findall(r'\d+', s)
+    if not nums:
+        return None
+
+    # heuristics to build a 4-digit year and get month/day
+    y = m = d = None
+    if len(nums) >= 3:
+        if len(nums[0]) == 4:
+            y, m, d = nums[0], nums[1], nums[2]
+        elif len(nums[0]) == 2 and len(nums[1]) == 2:
+            # e.g. "20 17 / 12 / 22" -> year = "20"+"17" -> 2017
+            y = nums[0] + nums[1]
+            m = nums[2]
+            d = nums[3] if len(nums) > 3 else None
+        elif len(nums[0]) == 1 and len(nums[1]) == 2:
+            # e.g. "2 18 / 1 / 14" -> interpret as 2018
+            y = '20' + nums[1]
+            m = nums[2] if len(nums) > 2 else None
+            d = nums[3] if len(nums) > 3 else None
+        else:
+            # fallback: take first three numeric tokens
+            y, m, d = nums[0], nums[1], nums[2]
+    else:
+        return None
+
+    try:
+        y = str(int(y))
+        m = f"{int(m):02d}"
+        d = f"{int(d):02d}"
+        return f"{y}/{m}/{d}"
+    except Exception:
+        return None
 import pytesseract
 
 def extract_id_data(pdf_path):
@@ -193,51 +242,67 @@ def extract_id_data(pdf_path):
         barcode_img = right_images[0][1]
 
         # OCR full barcode image before cropping
+        # --- Robust issue/expiry extraction (replace your old block) ---
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
-
-        # Extract issue/expiry dates
-        issue_matches = re.findall(r"(\d[\d\sዐ]+/\s*\d+/\s*\d+)\s*[|Il1\- ]?\s*(\d{4}\s*/\s*[A-Za-z]{3}\s*/\s*\d{2})",ocr_text)
-
-
         print("OCR text:", repr(ocr_text))
-        print("issue:", repr(issue_matches))
+        # Anchor to label and get small snippet after it (safer than scanning whole OCR)
+        label_re = re.search(r'(Date of Issue|የተሰጠበት ቀን|የተሰጠበት)', ocr_text, flags=re.I)
+        if label_re:
+            start = label_re.end()
+            snippet = ocr_text[start:start + 200]
+        else:
+            snippet = ocr_text[:200]
 
-        if issue_matches:
-            ec_raw, gc_raw = issue_matches[0]
+        snippet = snippet.replace('\n', ' ').strip()
+        snippet = snippet.lstrip(' |:')  # remove leading separators if any
 
-            # Keep only digits and slashes in EC
-            ec = re.sub(r"[^0-9/]", "", ec_raw)
-            gc = gc_raw.replace(" ", "")
+        # split by '|' into left (EC-ish) and right (GC-ish)
+        parts = [p.strip() for p in snippet.split('|') if p.strip()]
+        left = parts[0] if len(parts) >= 1 else ''
+        right = parts[1] if len(parts) >= 2 else ''
 
-            data["issue_ec"] = ec
-            data["issue_gc"] = gc
+        issue_ec = _build_ec_from_text(left)
+        issue_gc = _clean_gc(right)
 
+        # Fallback attempts: if gc not found on right, try left side (some OCR orders vary)
+        if not issue_gc:
+            issue_gc = _clean_gc(left)
+            if issue_gc and not issue_ec:
+                issue_ec = _build_ec_from_text(right)
+
+        # finally set data fields (mirror your existing behavior)
+        if issue_ec and issue_gc:
+            data["issue_ec"] = issue_ec
+            data["issue_gc"] = issue_gc
+
+            # compute expiry_ec from issue_ec (reuse your adjust_expiry helper)
             try:
-                ec_y, ec_m, ec_d = map(int, ec.split("/"))
+                ec_y, ec_m, ec_d = map(int, issue_ec.split("/"))
                 expiry_ec_y, expiry_ec_m, expiry_ec_d = adjust_expiry(ec_y, ec_m, ec_d)
                 data["expiry_ec"] = f"{expiry_ec_y:04d}/{expiry_ec_m:02d}/{expiry_ec_d:02d}"
-            except Exception as e:
+            except Exception:
                 data["expiry_ec"] = ""
 
-            # ---- Handle GC expiry ----
+            # compute GC expiry similarly (month name -> month number)
             try:
-                # parse GC date (with month name)
-                gc_y, gc_m_str, gc_d = gc.split("/")
-                gc_y = int(gc_y)
-                gc_d = int(gc_d)
-                gc_m = datetime.strptime(gc_m_str, "%b").month  # convert "Aug" → 8
-
+                parts_gc = issue_gc.split("/")
+                gc_y = int(re.sub(r'[^0-9]', '', parts_gc[0]))
+                gc_m_str = re.sub(r'[^A-Za-z]', '', parts_gc[1])
+                gc_d = int(re.sub(r'[^0-9]', '', parts_gc[2]))
+                gc_m = datetime.strptime(gc_m_str[:3], "%b").month
                 expiry_gc_y, expiry_gc_m, expiry_gc_d = adjust_expiry(gc_y, gc_m, gc_d)
-                expiry_gc_m_str = datetime(2000, expiry_gc_m, 1).strftime("%b")  # back to abbrev
+                expiry_gc_m_str = datetime(2000, expiry_gc_m, 1).strftime("%b")
                 data["expiry_gc"] = f"{expiry_gc_y:04d}/{expiry_gc_m_str}/{expiry_gc_d:02d}"
-            except Exception as e:
+            except Exception:
                 data["expiry_gc"] = ""
         else:
             data["issue_ec"] = data["issue_gc"] = ""
             data["expiry_ec"] = data["expiry_gc"] = ""
+        print("parsed issue_ec, issue_gc:", data.get("issue_ec"), data.get("issue_gc"))
+        # --- end replacement ---
 
-        
-        
+                
+                
 
 
 
