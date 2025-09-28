@@ -484,14 +484,14 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_allowed = user_data.get("allow", False)
 
     if is_allowed or has_package:
-        await update.message.reply_text(f"Processing PDF {pdf_id}...")
+        await update.message.reply_text(f"Processing PDF {pdf_id}...it wont take more than 5 minutes")
 
         # Deduct 1 package if available
         if has_package:
             new_package_count = max(0, user_data["package"] - 1)
             user_ref.update({"package": new_package_count})
+        asyncio.create_task(process_printing(pdf_id, context))
 
-        await process_printing(pdf_id, context)
     else:
         await update.message.reply_text(f"Processing PDF {pdf_id}...")
         # Extract demo card

@@ -3,10 +3,15 @@ FROM python:3.12-slim
 # Install Tesseract + Amharic language support
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
+    tesseract-ocr-eng \
     tesseract-ocr-amh \
     libtesseract-dev \
     libleptonica-dev \
+    fonts-dejavu \
+    fonts-noto \
+    fonts-freefont-ttf \
     && rm -rf /var/lib/apt/lists/*
+
 
 WORKDIR /app
 
