@@ -743,7 +743,7 @@ async def process_printing(pdf_id, context):
 
 # ------------------ Main ------------------
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
-
+from fastapi import FastAPI, Request
 app = FastAPI()
 
 # Build Telegram application
