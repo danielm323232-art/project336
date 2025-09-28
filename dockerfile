@@ -16,5 +16,8 @@ COPY . .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Run your bot
-CMD ["python", "bot.py"]
+# Expose Render's dynamic port
+EXPOSE 10000
+
+# Start FastAPI app with uvicorn (bot.py must define "app = FastAPI()")
+CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "10000"]

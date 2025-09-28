@@ -742,16 +742,34 @@ async def process_printing(pdf_id, context):
 
 
 # ------------------ Main ------------------
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
 
-async def on_startup(app):
-    app.create_task(keepalive_loop())   # python-telegram-bot v20 style
-app.post_init = on_startup
+app = FastAPI()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-app.add_handler(CallbackQueryHandler(handle_callback))
+# Build Telegram application
+telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-print("Bot started...")
-app.run_polling()
+# Register handlers
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+telegram_app.add_handler(CallbackQueryHandler(handle_callback))
+
+# Startup: set webhook
+@app.on_event("startup")
+async def startup_event():
+    await telegram_app.bot.set_webhook(url=WEBHOOK_URL)
+    print(f"Webhook set to {WEBHOOK_URL}")
+
+# Shutdown: cleanup
+@app.on_event("shutdown")
+async def shutdown_event():
+    await telegram_app.stop()
+
+# Webhook endpoint for Telegram
+@app.post("/webhook")
+async def telegram_webhook(req: Request):
+    data = await req.json()
+    update = Update.de_json(data, telegram_app.bot)
+    await telegram_app.process_update(update)
+    return {"ok": True}
