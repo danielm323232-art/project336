@@ -241,9 +241,22 @@ def extract_id_data(pdf_path):
         fin_img = right_images[1][1]
         barcode_img = right_images[0][1]
 
-        # OCR full barcode image before cropping
-        # --- Robust issue/expiry extraction (replace your old block) ---
-        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
+        # Assuming you already have barcode_img = right_images[0][1]
+
+        bw, bh = barcode_img.size
+
+        # Crop a vertical strip on the right side (10% width, full height)
+        x1 = int(bw * 0.85)   # start 85% across width
+        y1 = int(bh * 0.05)   # small top margin
+        x2 = bw               # right edge
+        y2 = int(bh * 0.95)   # small bottom margin
+
+        date_crop = barcode_img.crop((x1, y1, x2, y2))
+
+        # OCR only this cropped strip
+        ocr_text = pytesseract.image_to_string(date_crop, lang="eng+amh", config="--psm 6")
+        print("Date OCR:", repr(ocr_text))
+
         print("OCR text:", repr(ocr_text))
         # Anchor to label and get small snippet after it (safer than scanning whole OCR)
         label_re = re.search(r'(Date of Issue|የተሰጠበት ቀን|የተሰጠበት)', ocr_text, flags=re.I)
@@ -791,16 +804,32 @@ async def process_printing(pdf_id, context):
         if not pdf_data:
             return
 
-        extracted = await asyncio.to_thread(extract_id_data, pdf_data['file_path'])
-        output_path = pdf_data['file_path'].replace(".pdf", ".png")
+        pdf_path = pdf_data['file_path']
+
+        # 📝 Extract original filename
+        original_name = os.path.basename(pdf_path)  # e.g. "efayda_Teshale Gamesa Ibsa.pdf"
+        base_name, _ = os.path.splitext(original_name)
+
+        # 📝 Remove "efayda_" prefix if present
+        if base_name.startswith("efayda_"):
+            base_name = base_name[len("efayda_"):]
+
+        # Final PNG output path with cleaned name
+        output_path = os.path.join("outputs", f"{base_name}.png")
+
+        # Process PDF → data → image
+        extracted = await asyncio.to_thread(extract_id_data, pdf_path)
         await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
 
         try:
             with open(output_path, "rb") as doc:
-                await context.bot.send_document(chat_id=pdf_data['user_id'], document=doc)
+                await context.bot.send_document(
+                    chat_id=pdf_data['user_id'],
+                    document=doc,
+                    filename=f"{base_name}.png"  # ✅ Also name file for customer
+                )
         finally:
-            asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
-
+            asyncio.create_task(delayed_cleanup([pdf_path, output_path], delay=600))
 # ------------------ Main ------------------
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
 # ---------------- FastAPI App ----------------
