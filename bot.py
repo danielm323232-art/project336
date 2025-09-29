@@ -250,10 +250,10 @@ def extract_id_data(pdf_path):
         bw, bh = barcode_img.size
         # Crop only the right-side strip where "Date of Issue" + expiry are located
         issue_crop = barcode_img.crop((
-            int(bw * 0.70),   # left bound ~70% width
-            int(bh * 0.15),   # top
-            int(bw * 0.98),   # right edge
-            int(bh * 0.85)    # bottom
+            int(bw * 0.50),   # left bound ~70% width
+            int(bh * 0.10),   # top
+            int(bw * 1),   # right edge
+            int(bh * 0.9)    # bottom
         ))
 
         # Run OCR only on this cropped snippet
