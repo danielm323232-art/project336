@@ -247,22 +247,12 @@ def extract_id_data(pdf_path):
         fin_img = right_images[1][1]
         barcode_img = right_images[0][1]
 
-        bw, bh = barcode_img.size
-        # Crop only the right-side strip where "Date of Issue" + expiry are located
-        issue_crop = barcode_img.crop((
-            int(bw * 0.50),   # left bound ~70% width
-            int(bh * 0.10),   # top
-            int(bw * 1),   # right edge
-            int(bh * 0.9)    # bottom
-        ))
-
-        # Run OCR only on this cropped snippet
-        ocr_text = pytesseract.image_to_string(issue_crop, lang="eng+amh")
-        print("OCR cropped text:", repr(ocr_text))
-
-        # Anchor to label and get small snippet after it
-        label_re = re.search(r'(Date of Issue|የተሰጠበት ቀን|የተሰጠበት)', ocr_text, flags=re.I)
+        # OCR full barcode image before cropping
+        # --- Robust issue/expiry extraction (replace your old block) ---
+        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
+        print("OCR text:", repr(ocr_text))
         # Anchor to label and get small snippet after it (safer than scanning whole OCR)
+        label_re = re.search(r'(Date of Issue|የተሰጠበት ቀን|የተሰጠበት)', ocr_text, flags=re.I)
         if label_re:
             start = label_re.end()
             snippet = ocr_text[start:start + 200]
