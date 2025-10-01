@@ -575,12 +575,16 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
         await update.message.reply_text(f"Processing PDF {pdf_id}...")
+        # Use the stored path
+        pdf_data = db.reference(f'pdfs/{pdf_id}').get()
+        pdf_path = pdf_data['file_path']
+
         # Extract demo card
-        extracted = await asyncio.to_thread(extract_id_data, file_path)
-        demo_output = file_path.replace(".pdf", "_demo.png")
+        extracted = await asyncio.to_thread(extract_id_data, pdf_path)
+        demo_output = pdf_path.replace(".pdf", "_demo.png")
         await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, demo_output)
 
-        demo_watermarked = file_path.replace(".pdf", "_demo_watermarked.png")
+        demo_watermarked = pdf_path.replace(".pdf", "_demo_watermarked.png")
         await asyncio.to_thread(add_demo_watermark, demo_output, demo_watermarked)
 
         # Save request in DB
