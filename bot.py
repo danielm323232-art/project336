@@ -246,14 +246,8 @@ def extract_id_data(pdf_path):
     if len(right_images) >= 2:
         fin_img = right_images[1][1]
         barcode_img = right_images[0][1]
-
-        w, h = barcode_img.size
-
-                # Crop right 50%
-        right_half = barcode_img.crop((w//2, 0, w, h))
-        
         # Run OCR
-        ocr_text = pytesseract.image_to_string(right_half, lang="eng+amh")
+        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
         print("OCR text:", repr(ocr_text))
         # Anchor to label and get small snippet after it (safer than scanning whole OCR)
         label_re = re.search(r'(Date of Issue|የተሰጠበት ቀን|የተሰጠበት)', ocr_text, flags=re.I)
