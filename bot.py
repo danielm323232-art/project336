@@ -833,6 +833,7 @@ telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
 # Root (for Render health checks)
 @app.get("/")
+@app.head("/")
 async def root():
     return {"status": "ok"}
 
