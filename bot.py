@@ -343,15 +343,30 @@ def extract_id_data(pdf_path):
                     y = "20" + y
                 return f"{y}/{int(m.group(2)):02d}/{int(m.group(3)):02d}"
         
+
             def clean_gc(text):
                 """Extract Gregorian date (letters in month part)."""
+                # 1️⃣ Normalize months first
+                text = normalize_months(text)
+            
+                # 2️⃣ Replace fullwidth/unicode slashes with normal ones
+                text = text.replace("／", "/")
+            
+                # 3️⃣ Strip unwanted characters but keep month letters and slashes
                 text = re.sub(r"[^A-Za-z0-9/]", "", text)
-                # Fix common OCR month issues
-                text =  normalize_months(text)
+            
+                # 4️⃣ Collapse multiple slashes
+                text = re.sub(r'/+', '/', text)
+            
+                # 5️⃣ Try to match YYYY/Mon/DD
                 m = re.search(r"(\d{4})/([A-Za-z]{3,})/(\d{1,2})", text)
                 if not m:
                     return ""
-                return f"{m.group(1)}/{m.group(2).title()}/{int(m.group(3)):02d}"
+            
+                # 6️⃣ Normalize output
+                year, month, day = m.groups()
+                return f"{year}/{month.title()}/{int(day):02d}"
+
         
             # --- 4️⃣ Extract EC and GC with fallback ---
             issue_ec = clean_ec(left) or clean_ec(right)
