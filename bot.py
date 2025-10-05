@@ -255,48 +255,49 @@ def extract_id_data(pdf_path):
                 # --- OCR only English text on barcode area ---
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
         print("OCR text:", repr(ocr_text))
-
-        # Normalize text
+        
         # ------------------ Extract Issue Date ------------------
-        # Split OCR text into lines
         lines = ocr_text.splitlines()
         issue_line = ""
         
-        # Find the line containing "Date of Issue"
         for line in lines:
             if re.search(r"Date\s*of\s*Issue", line, re.IGNORECASE):
                 issue_line = line
                 break
         
-        # Clean OCR errors
-        issue_line_clean = issue_line.replace("I", "1").replace("l", "1").replace("O0", "0")
-        issue_line_clean = re.sub(r"[^0-9A-Za-z/]", "", issue_line_clean)  # remove extra symbols
+        # Split on pipe to separate EC / GC if present
+        parts = issue_line.split("|")
+        part_ec, part_gc = parts[0] if len(parts) > 0 else "", parts[1] if len(parts) > 1 else ""
         
-        # Initialize
-        issue_ec = None
-        issue_gc = None
+        def clean_ocr_date(s):
+            s = s.replace("O0", "0").replace("o0", "0").replace("I", "1").replace("l", "1")
+            s = s.replace(" ", "").replace("’", "").replace("'", "").replace(")", "")
+            return s
+        
+        part_ec = clean_ocr_date(part_ec)
+        part_gc = clean_ocr_date(part_gc)
         
         # Extract EC (numeric YYYY/MM/DD)
-        ec_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', issue_line_clean)
+        issue_ec = None
+        ec_match = re.search(r'(\d{4})[./-]?(\d{1,2})[./-]?(\d{1,2})', part_ec)
         if ec_match:
             y, m, d = map(int, ec_match.groups())
             issue_ec = f"{y:04d}/{m:02d}/{d:02d}"
         
         # Extract GC (YYYY/Mon/DD)
-        gc_match = re.search(r'(\d{4})/([A-Za-z]{3})/(\d{1,2})', issue_line_clean)
+        issue_gc = None
+        gc_match = re.search(r'(\d{4})/([A-Za-z]{3})/(\d{1,2})', part_gc)
         if gc_match:
             y, m_s, d = gc_match.groups()
             issue_gc = f"{int(y):04d}/{m_s.capitalize()[:3]}/{int(d):02d}"
         
-        # Fallback conversions if one is missing
+        # Fallback conversions
         def ec_to_gc(ec_str):
             try:
                 y, m, d = map(int, ec_str.split("/"))
-                base = datetime(y, m, d)
-                gc_date = base.replace(year=y + 7)
+                gc_date = datetime(y + 7, m, d)
                 return gc_date.strftime("%Y/%b/%d")
-            except Exception as e:
-                print("EC→GC error:", e)
+            except:
                 return None
         
         def gc_to_ec(gc_str):
@@ -306,8 +307,7 @@ def extract_id_data(pdf_path):
                 m = datetime.strptime(m_s[:3], "%b").month
                 ec_y = y - 7
                 return f"{ec_y:04d}/{m:02d}/{int(d):02d}"
-            except Exception as e:
-                print("GC→EC error:", e)
+            except:
                 return None
         
         if issue_ec and not issue_gc:
@@ -315,11 +315,11 @@ def extract_id_data(pdf_path):
         elif issue_gc and not issue_ec:
             issue_ec = gc_to_ec(issue_gc)
         
-        # Assign back to data dict
         data["issue_ec"] = issue_ec or ""
         data["issue_gc"] = issue_gc or ""
         
         print("Parsed issue_ec:", data["issue_ec"], "issue_gc:", data["issue_gc"])
+
 
 
         # Now crop FIN and barcode for placing on card
