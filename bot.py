@@ -183,6 +183,63 @@ def _build_ec_from_text(left_snip):
     except Exception:
         return None
 import pytesseract
+import re
+
+def normalize_months(text: str) -> str:
+    """
+    Cleans OCR text for months (handles repetition, mixed digits/letters, spacing, etc.)
+    Returns normalized text with correct month names (Jan, Feb, Mar, ... Dec).
+    """
+
+    # 1️⃣ Normalize case and remove extra spaces
+    text = text.lower().strip()
+
+    # 2️⃣ Replace common OCR digit-letter confusions
+    text = (text
+            .replace('0', 'o')
+            .replace('1', 'l')
+            .replace('5', 's')
+            .replace('8', 'b')
+            .replace('6', 'g')
+            .replace('4', 'a'))
+
+    # 3️⃣ Remove stray punctuation except /
+    text = re.sub(r'[^a-z0-9/]', '', text)
+
+    # 4️⃣ Collapse repeated letters (ooct → oct, maaay → may)
+    text = re.sub(r'(.)\1{1,}', r'\1', text)
+
+    # 5️⃣ Fix corrupted month names
+    month_map = {
+        'jan': ['ian', 'jnn', 'jqn'],
+        'feb': ['fe6', 'fcb', 'fep', 'fer'],
+        'mar': ['mqr', 'ma7', 'marc'],
+        'apr': ['aprl', 'apri', 'aprl1', 'appr'],
+        'may': ['m4y', 'maay'],
+        'jun': ['juin', 'jnn', 'jun3', 'jn'],
+        'jul': ['ju1', 'juIy', 'ju7y', 'juiy'],
+        'aug': ['au9', 'augus', 'aue', 'au8'],
+        'sep': ['sept', '5ep', 'se9'],
+        'oct': ['o0t', '0ct', 'oet', 'octt', '0ct0', 'oc', 'oot'],
+        'nov': ['n0v', 'noV', 'n0b', 'novv'],
+        'dec': ['deC', 'd3c', 'de0', 'decem']
+    }
+
+    # Replace each variant
+    for clean, variants in month_map.items():
+        for v in variants:
+            text = re.sub(v, clean, text, flags=re.I)
+
+    # 6️⃣ Final cleanup: ensure consistent month capitalization
+    for m in ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]:
+        text = re.sub(m.lower(), m, text, flags=re.I)
+
+    # 7️⃣ Remove stray slashes at ends or duplicates
+    text = re.sub(r'/+', '/', text)
+    text = re.sub(r'^/|/$', '', text)
+
+    return text
 
 def extract_id_data(pdf_path):
     doc = fitz.open(pdf_path)
@@ -290,10 +347,7 @@ def extract_id_data(pdf_path):
                 """Extract Gregorian date (letters in month part)."""
                 text = re.sub(r"[^A-Za-z0-9/]", "", text)
                 # Fix common OCR month issues
-                text = (text.replace("0ct", "Oct")
-                             .replace("O0t", "Oct")
-                             .replace("Oot", "Oct")
-                             .replace("oct", "Oct"))
+                text =  normalize_months(text)
                 m = re.search(r"(\d{4})/([A-Za-z]{3,})/(\d{1,2})", text)
                 if not m:
                     return ""
