@@ -248,7 +248,7 @@ def extract_id_data(pdf_path):
         barcode_img = right_images[0][1]
         # Run OCR
             # OCR full barcode image before cropping
-               ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
+        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
         print("OCR text:", repr(ocr_text))
 
         # --- Find the line containing "Date of Issue" or its Amharic equivalent ---
