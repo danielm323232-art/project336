@@ -355,6 +355,10 @@ def extract_id_data(pdf_path):
         images["barcode_img"] = barcode_crop
 
     data["images"] = images
+    # Ensure expiry fields exist even if OCR failed
+    data.setdefault("expiry_ec", "")
+    data.setdefault("expiry_gc", "")
+
     return data
 def draw_rotated_text(base_img, text, position, angle, font, fill="black"):
     # 1. Create a temporary image for the text
