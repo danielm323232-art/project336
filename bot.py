@@ -253,28 +253,65 @@ def extract_id_data(pdf_path):
 
                 # --- OCR full barcode image ---
                 # --- OCR only English text on barcode area ---
+        
+
+        def extract_issue_dates(ocr_text):
+            """
+            Extract EC and GC issue dates from full OCR text
+            (everything after 'Date of Issue' → split by '|').
+            """
+            # --- 1️⃣ Take text after 'Date of Issue' ---
+            match = re.search(r'Date of Issue(.*)', ocr_text, flags=re.I | re.S)
+            if not match:
+                print("No 'Date of Issue' found.")
+                return "", ""
+            after_issue = match.group(1).strip()
+            print("Raw text after 'Date of Issue':", repr(after_issue))
+        
+            # --- 2️⃣ Split into EC (left) and GC (right) sides ---
+            parts = [p.strip() for p in after_issue.split('|') if p.strip()]
+            left = parts[0] if len(parts) >= 1 else ''
+            right = parts[1] if len(parts) >= 2 else ''
+            print("Split parts:", repr(left), "|", repr(right))
+        
+            # --- 3️⃣ Cleaning helpers ---
+            def clean_ec(text):
+                """Extract Ethiopian date (digits + / only)."""
+                text = re.sub(r"[^0-9/]", "", text)
+                m = re.search(r"(\d{2,4})/(\d{1,2})/(\d{1,2})", text)
+                if not m:
+                    return ""
+                y = m.group(1)
+                if len(y) == 2:  # Handle '18' → '2018'
+                    y = "20" + y
+                return f"{y}/{int(m.group(2)):02d}/{int(m.group(3)):02d}"
+        
+            def clean_gc(text):
+                """Extract Gregorian date (letters in month part)."""
+                text = re.sub(r"[^A-Za-z0-9/]", "", text)
+                # Fix common OCR month issues
+                text = (text.replace("0ct", "Oct")
+                             .replace("O0t", "Oct")
+                             .replace("Oot", "Oct")
+                             .replace("oct", "Oct"))
+                m = re.search(r"(\d{4})/([A-Za-z]{3,})/(\d{1,2})", text)
+                if not m:
+                    return ""
+                return f"{m.group(1)}/{m.group(2).title()}/{int(m.group(3)):02d}"
+        
+            # --- 4️⃣ Extract EC and GC with fallback ---
+            issue_ec = clean_ec(left) or clean_ec(right)
+            issue_gc = clean_gc(right) or clean_gc(left)
+        
+            print("✅ Extracted issue_ec:", issue_ec, "| issue_gc:", issue_gc)
+            return issue_ec, issue_gc
+        
+        
+        # Example test with your OCR text
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng") 
-        print("OCR text:", repr(ocr_text))
-        
-        # Anchor to label and get a small snippet after it (safer than scanning whole OCR)
-        label_re = re.search(r'Date of Issue', ocr_text, flags=re.I)
-        if label_re:
-            start = label_re.end()
-            snippet = ocr_text[start:start + 200]
-        else:
-            snippet = ocr_text[:200]
-        
-        snippet = snippet.replace('\n', ' ').strip()
-        snippet = snippet.lstrip(' |:')  # remove leading separators if any
-        
-        # split by '|' into left (EC-ish) and right (GC-ish)
-        parts = [p.strip() for p in snippet.split('|') if p.strip()]
-        left = parts[0] if len(parts) >= 1 else ''
-        right = parts[1] if len(parts) >= 2 else ''
-        
-        issue_ec = _build_ec_from_text(left)
-        issue_gc = _clean_gc(right)
-        
+        issue_ec, issue_gc = extract_issue_dates(ocr_text)
+        print("Final:", issue_ec, issue_gc)
+
         # Fallback attempts (OCR can swap sides)
         if not issue_gc:
             issue_gc = _clean_gc(left)
