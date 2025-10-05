@@ -403,14 +403,7 @@ def add_white_shadow(img, blur_radius=25, expand=25):
     return combined
 import random
      # Helper to draw text with optional line break if "-" exists
-def draw_split_text(draw_obj, xy, text, font, fill, line_spacing=25):
-    if not text:
-        return
-    parts = [t.strip() for t in text.split("-", 1)]
-    draw_obj.text(xy, parts[0], fill=fill, font=font)
-    if len(parts) > 1 and parts[1]:
-        x, y = xy
-        draw_obj.text((x, y + line_spacing), parts[1], fill=fill, font=font)
+
 def generate_number_str():
     number = random.randint(8_900_000, 9_500_000)
     return str(number)
@@ -468,13 +461,29 @@ def create_id_card(data, template_path, output_path):
     draw.text((1085, 65), f"{data['phone']}", fill="black", font=font)
    
 
+        # --- Draw text helper that returns how many lines it drew ---
+    def draw_split_text(draw_obj, xy, text, font, fill, line_spacing=25):
+        """Draws text; if '-' exists, draws second part below and returns lines drawn."""
+        if not text:
+            return 0
+        x, y = xy
+        parts = [t.strip() for t in text.split("-", 1)]
+        draw_obj.text((x, y), parts[0], fill=fill, font=font)
+        if len(parts) > 1 and parts[1]:
+            draw_obj.text((x, y + line_spacing), parts[1], fill=fill, font=font)
+            return 2
+        return 1
+
     # --- Region / Subcity / Woreda (Amharic + English) ---
-    draw_split_text(draw, (1085, 220), data["region_am"], font, "black")
-    draw_split_text(draw, (1085, 250), data["region_en"], font, "black")
-    draw_split_text(draw, (1085, 280), data["subcity_am"], font, "black")
-    draw_split_text(draw, (1085, 310), data["subcity_en"], font, "black")
-    draw_split_text(draw, (1085, 340), data["woreda_am"], font, "black")
-    draw_split_text(draw, (1085, 370), data["woreda_en"], font, "black")
+    x = 1085
+    y = 220
+    step = 30   # base vertical spacing between groups
+
+    for key in ["region_am", "region_en", "subcity_am", "subcity_en", "woreda_am", "woreda_en"]:
+        lines = draw_split_text(draw, (x, y), data.get(key, ""), font, "black")
+        # move Y down by base step + any extra line drawn
+        y += step * lines
+
 
     draw.text((1900, 570), generate_number_str(), fill="black", font=fontss)
 
