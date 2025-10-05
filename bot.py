@@ -257,37 +257,38 @@ def extract_id_data(pdf_path):
         print("OCR text:", repr(ocr_text))
 
         # Normalize text
-        ocr_text_clean = re.sub(r'\s+', ' ', ocr_text)
-        ocr_text_clean = ocr_text_clean.replace("I", "1").replace("l", "1")  # common OCR fixes
-
-        # --- Locate "Date of Issue" and capture next ~30 chars ---
-        label_match = re.search(r"(Date\s*of\s*Issue)", ocr_text_clean, re.IGNORECASE)
-        snippet = ""
-        if label_match:
-            start = label_match.end()
-            snippet = ocr_text_clean[start:start + 40]
-        else:
-            snippet = ocr_text_clean[:80]
-
-        print("Snippet after label:", snippet)
-
-        # --- Extract EC (YYYY/MM/DD) and GC (YYYY/Mon/DD) from snippet ---
+        # ------------------ Extract Issue Date ------------------
+        # Split OCR text into lines
+        lines = ocr_text.splitlines()
+        issue_line = ""
+        
+        # Find the line containing "Date of Issue"
+        for line in lines:
+            if re.search(r"Date\s*of\s*Issue", line, re.IGNORECASE):
+                issue_line = line
+                break
+        
+        # Clean OCR errors
+        issue_line_clean = issue_line.replace("I", "1").replace("l", "1").replace("O0", "0")
+        issue_line_clean = re.sub(r"[^0-9A-Za-z/]", "", issue_line_clean)  # remove extra symbols
+        
+        # Initialize
         issue_ec = None
         issue_gc = None
-
-        # Try EC (pure numeric) like 2018/01/24
-        ec_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', snippet)
+        
+        # Extract EC (numeric YYYY/MM/DD)
+        ec_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', issue_line_clean)
         if ec_match:
             y, m, d = map(int, ec_match.groups())
             issue_ec = f"{y:04d}/{m:02d}/{d:02d}"
-
-        # Try GC (YYYY/Mon/DD) like 2025/Oct/04
-        gc_match = re.search(r'(\d{4})/([A-Za-z]{3})/(\d{1,2})', snippet)
+        
+        # Extract GC (YYYY/Mon/DD)
+        gc_match = re.search(r'(\d{4})/([A-Za-z]{3})/(\d{1,2})', issue_line_clean)
         if gc_match:
             y, m_s, d = gc_match.groups()
             issue_gc = f"{int(y):04d}/{m_s.capitalize()[:3]}/{int(d):02d}"
-
-        # --- If one side missing, convert the other ---
+        
+        # Fallback conversions if one is missing
         def ec_to_gc(ec_str):
             try:
                 y, m, d = map(int, ec_str.split("/"))
@@ -297,7 +298,7 @@ def extract_id_data(pdf_path):
             except Exception as e:
                 print("EC→GC error:", e)
                 return None
-
+        
         def gc_to_ec(gc_str):
             try:
                 y, m_s, d = gc_str.split("/")
@@ -308,39 +309,17 @@ def extract_id_data(pdf_path):
             except Exception as e:
                 print("GC→EC error:", e)
                 return None
-
+        
         if issue_ec and not issue_gc:
             issue_gc = ec_to_gc(issue_ec)
         elif issue_gc and not issue_ec:
             issue_ec = gc_to_ec(issue_gc)
-
+        
+        # Assign back to data dict
         data["issue_ec"] = issue_ec or ""
         data["issue_gc"] = issue_gc or ""
-
-        # --- Expiry calculation (as before) ---
-        try:
-            if issue_ec:
-                y, m, d = map(int, issue_ec.split("/"))
-                ey, em, ed = adjust_expiry(y, m, d)
-                data["expiry_ec"] = f"{ey:04d}/{em:02d}/{ed:02d}"
-        except:
-            data["expiry_ec"] = ""
-
-        try:
-            if issue_gc:
-                parts_gc = issue_gc.split("/")
-                gc_y = int(parts_gc[0])
-                gc_m_str = parts_gc[1][:3]
-                gc_d = int(parts_gc[2])
-                gc_m = datetime.strptime(gc_m_str, "%b").month
-                gy, gm, gd = adjust_expiry(gc_y, gc_m, gc_d)
-                gm_str = datetime(2000, gm, 1).strftime("%b")
-                data["expiry_gc"] = f"{gy:04d}/{gm_str}/{gd:02d}"
-        except:
-            data["expiry_gc"] = ""
-
+        
         print("Parsed issue_ec:", data["issue_ec"], "issue_gc:", data["issue_gc"])
-
 
 
         # Now crop FIN and barcode for placing on card
