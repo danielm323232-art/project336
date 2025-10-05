@@ -90,7 +90,7 @@ def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     return year, month, day
 import asyncio
 
-async def delayed_cleanup(paths, delay=300):  # 300 sec = 5 min
+async def delayed_cleanup(paths, delay=10):  # 300 sec = 5 min
     await asyncio.sleep(delay)
     for path in paths:
         try:
@@ -814,7 +814,7 @@ async def process_printing(pdf_id, context):
             with open(output_path, "rb") as doc:
                 await context.bot.send_document(chat_id=pdf_data['user_id'], document=doc)
         finally:
-            asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=600))
+            asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=2))
 
 # ------------------ Main ------------------
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
