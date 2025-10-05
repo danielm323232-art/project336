@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
-    CommandHandler,
+    CommandHandler, 
     MessageHandler,
     CallbackQueryHandler,
     filters,
@@ -252,41 +252,50 @@ def extract_id_data(pdf_path):
                 
 
                 # --- OCR full barcode image ---
-        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
+                # --- OCR only English text on barcode area ---
+        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
         print("OCR text:", repr(ocr_text))
 
-        # Find the EC side (left)
-        ec_match = re.search(r"(\d{2,4}/\d{1,2}/\d{1,2})", ocr_text)
+        # Normalize text
+        ocr_text_clean = re.sub(r'\s+', ' ', ocr_text)
+        ocr_text_clean = ocr_text_clean.replace("I", "1").replace("l", "1")  # common OCR fixes
+
+        # --- Locate "Date of Issue" and capture next ~30 chars ---
+        label_match = re.search(r"(Date\s*of\s*Issue)", ocr_text_clean, re.IGNORECASE)
+        snippet = ""
+        if label_match:
+            start = label_match.end()
+            snippet = ocr_text_clean[start:start + 40]
+        else:
+            snippet = ocr_text_clean[:80]
+
+        print("Snippet after label:", snippet)
+
+        # --- Extract EC (YYYY/MM/DD) and GC (YYYY/Mon/DD) from snippet ---
         issue_ec = None
-        if ec_match:
-            y, m, d = re.findall(r"\d+", ec_match.group(1))
-            if len(y) == 2:
-                y = "20" + y
-            issue_ec = f"{int(y):04d}/{int(m):02d}/{int(d):02d}"
-
-        # --- Rotate right side to catch GC text ---
-        w, h = barcode_img.size
-        right_crop = barcode_img.crop((int(w*0.6), 0, w, h))  # right 40%
-        rotated = right_crop.rotate(-90, expand=True)
-
-        ocr_rotated = pytesseract.image_to_string(rotated, lang="eng")
-        print("Rotated OCR:", repr(ocr_rotated))
-
-        # Find GC format like 2025/Oct/04
-        gc_match = re.search(r"(\d{4})/([A-Za-z]{3})/(\d{1,2})", ocr_rotated)
         issue_gc = None
-        if gc_match:
-            y, m, d = gc_match.groups()
-            issue_gc = f"{int(y):04d}/{m.capitalize()[:3]}/{int(d):02d}"
 
-        # --- If one side missing, estimate the other ---
+        # Try EC (pure numeric) like 2018/01/24
+        ec_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', snippet)
+        if ec_match:
+            y, m, d = map(int, ec_match.groups())
+            issue_ec = f"{y:04d}/{m:02d}/{d:02d}"
+
+        # Try GC (YYYY/Mon/DD) like 2025/Oct/04
+        gc_match = re.search(r'(\d{4})/([A-Za-z]{3})/(\d{1,2})', snippet)
+        if gc_match:
+            y, m_s, d = gc_match.groups()
+            issue_gc = f"{int(y):04d}/{m_s.capitalize()[:3]}/{int(d):02d}"
+
+        # --- If one side missing, convert the other ---
         def ec_to_gc(ec_str):
             try:
                 y, m, d = map(int, ec_str.split("/"))
                 base = datetime(y, m, d)
-                gc = base.replace(year=y+7)
-                return gc.strftime("%Y/%b/%d")
-            except:
+                gc_date = base.replace(year=y + 7)
+                return gc_date.strftime("%Y/%b/%d")
+            except Exception as e:
+                print("EC→GC error:", e)
                 return None
 
         def gc_to_ec(gc_str):
@@ -296,7 +305,8 @@ def extract_id_data(pdf_path):
                 m = datetime.strptime(m_s[:3], "%b").month
                 ec_y = y - 7
                 return f"{ec_y:04d}/{m:02d}/{int(d):02d}"
-            except:
+            except Exception as e:
+                print("GC→EC error:", e)
                 return None
 
         if issue_ec and not issue_gc:
@@ -307,7 +317,7 @@ def extract_id_data(pdf_path):
         data["issue_ec"] = issue_ec or ""
         data["issue_gc"] = issue_gc or ""
 
-        # Expiry from EC
+        # --- Expiry calculation (as before) ---
         try:
             if issue_ec:
                 y, m, d = map(int, issue_ec.split("/"))
@@ -316,7 +326,6 @@ def extract_id_data(pdf_path):
         except:
             data["expiry_ec"] = ""
 
-        # Expiry from GC
         try:
             if issue_gc:
                 parts_gc = issue_gc.split("/")
@@ -330,7 +339,7 @@ def extract_id_data(pdf_path):
         except:
             data["expiry_gc"] = ""
 
-        print("parsed issue_ec, issue_gc:", issue_ec, issue_gc)
+        print("Parsed issue_ec:", data["issue_ec"], "issue_gc:", data["issue_gc"])
 
 
 
