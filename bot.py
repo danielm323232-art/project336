@@ -367,10 +367,7 @@ def extract_id_data(pdf_path):
         print("Final:", issue_ec, issue_gc)
 
         # Fallback attempts (OCR can swap sides)
-        if not issue_gc:
-            issue_gc = _clean_gc(left)
-        if not issue_ec:
-            issue_ec = _build_ec_from_text(right)
+      
         
         # Always initialize fields to avoid KeyErrors
         data["issue_ec"] = issue_ec or ""
