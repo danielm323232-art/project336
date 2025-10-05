@@ -251,132 +251,87 @@ def extract_id_data(pdf_path):
             # OCR full barcode image before cropping
                 
 
+                # --- OCR full barcode image ---
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
         print("OCR text:", repr(ocr_text))
 
-        # --- Find "Date of Issue" line ---
-        match = re.search(r"(የተሰጠበት\s*ቀን|Date\s*of\s*Issue)(.*)", ocr_text, re.I)
-        if match:
-            snippet = match.group(2)
-        else:
-            snippet = ocr_text[:200]
+        # Find the EC side (left)
+        ec_match = re.search(r"(\d{2,4}/\d{1,2}/\d{1,2})", ocr_text)
+        issue_ec = None
+        if ec_match:
+            y, m, d = re.findall(r"\d+", ec_match.group(1))
+            if len(y) == 2:
+                y = "20" + y
+            issue_ec = f"{int(y):04d}/{int(m):02d}/{int(d):02d}"
 
-        # Clean up
-        snippet = re.sub(r'[\u1200-\u137F]+', ' ', snippet)
-        snippet = snippet.replace("\n", " ").replace(":", " ").replace("=", " ")
-        snippet = re.sub(r'\s+', ' ', snippet).strip()
+        # --- Rotate right side to catch GC text ---
+        w, h = barcode_img.size
+        right_crop = barcode_img.crop((int(w*0.6), 0, w, h))  # right 40%
+        rotated = right_crop.rotate(-90, expand=True)
 
-        # Split left (EC) | right (GC)
-        parts = [p.strip() for p in snippet.split("|") if p.strip()]
-        left = parts[0] if len(parts) >= 1 else ''
-        right = parts[1] if len(parts) >= 2 else ''
+        ocr_rotated = pytesseract.image_to_string(rotated, lang="eng")
+        print("Rotated OCR:", repr(ocr_rotated))
 
-        # --- Parse EC date (handles 2-digit year) ---
-        def parse_ec_date(s):
-            m = re.search(r'(\d{2,4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})', s)
-            if not m:
-                return None
-            y, mth, d = m.groups()
-            y = int(y)
-            if y < 100:
-                y += 2000
+        # Find GC format like 2025/Oct/04
+        gc_match = re.search(r"(\d{4})/([A-Za-z]{3})/(\d{1,2})", ocr_rotated)
+        issue_gc = None
+        if gc_match:
+            y, m, d = gc_match.groups()
+            issue_gc = f"{int(y):04d}/{m.capitalize()[:3]}/{int(d):02d}"
+
+        # --- If one side missing, estimate the other ---
+        def ec_to_gc(ec_str):
             try:
-                return f"{y:04d}/{int(mth):02d}/{int(d):02d}"
+                y, m, d = map(int, ec_str.split("/"))
+                base = datetime(y, m, d)
+                gc = base.replace(year=y+7)
+                return gc.strftime("%Y/%b/%d")
             except:
                 return None
 
-        # --- Parse GC date (handles Oct or numbers) ---
-        def parse_gc_date(s):
-            m = re.search(r'(\d{4})/([A-Za-z]{3,}|\d{1,2})/(\d{1,2})', s)
-            if not m:
-                return None
-            y, mpart, d = m.groups()
-            y = int(y)
-            if mpart.isdigit():
-                try:
-                    mnum = int(mpart)
-                    mpart = datetime.datetime(2000, mnum, 1).strftime("%b")
-                except:
-                    mpart = "Jan"
-            else:
-                mpart = mpart[:3].capitalize()
-            return f"{y:04d}/{mpart}/{int(d):02d}"
-
-        # --- Conversion helpers (approximate) ---
-        def ec_to_gc(ec_str):
-            """Convert Ethiopian Calendar → Gregorian (approx 7y9m shift)."""
-            try:
-                y, m, d = map(int, ec_str.split("/"))
-                base = datetime.date(y, m, d)
-                # rough +7 years 9 months shift
-                est = datetime.date(y + 7, m + 9 if m <= 3 else (m - 3), d)
-                return est.strftime("%Y/%b/%d")
-            except Exception:
-                return None
-
         def gc_to_ec(gc_str):
-            """Convert Gregorian Calendar → Ethiopian (approx 7y9m shift)."""
             try:
-                parts = gc_str.split("/")
-                y = int(parts[0])
-                m = parts[1]
-                d = int(parts[2])
-                if m.isalpha():
-                    m_num = datetime.datetime.strptime(m[:3], "%b").month
-                else:
-                    m_num = int(m)
-                base = datetime.date(y, m_num, d)
-                est = datetime.date(y - 8, m_num + 3 if m_num <= 9 else (m_num - 9), d)
-                return est.strftime("%Y/%m/%d")
-            except Exception:
+                y, m_s, d = gc_str.split("/")
+                y = int(y)
+                m = datetime.strptime(m_s[:3], "%b").month
+                ec_y = y - 7
+                return f"{ec_y:04d}/{m:02d}/{int(d):02d}"
+            except:
                 return None
 
-        issue_ec = parse_ec_date(left)
-        issue_gc = parse_gc_date(right)
-
-        # Fallback: reverse order
-        if not issue_ec and not issue_gc:
-            if len(parts) == 1:
-                issue_ec = parse_ec_date(parts[0]) or None
-                issue_gc = parse_gc_date(parts[0]) or None
-
-        # --- Convert missing date automatically ---
         if issue_ec and not issue_gc:
             issue_gc = ec_to_gc(issue_ec)
         elif issue_gc and not issue_ec:
             issue_ec = gc_to_ec(issue_gc)
 
-        # --- Store to data dict ---
         data["issue_ec"] = issue_ec or ""
         data["issue_gc"] = issue_gc or ""
 
-        # --- Expiry dates ---
+        # Expiry from EC
         try:
             if issue_ec:
                 y, m, d = map(int, issue_ec.split("/"))
                 ey, em, ed = adjust_expiry(y, m, d)
                 data["expiry_ec"] = f"{ey:04d}/{em:02d}/{ed:02d}"
-            else:
-                data["expiry_ec"] = ""
         except:
             data["expiry_ec"] = ""
 
+        # Expiry from GC
         try:
             if issue_gc:
                 parts_gc = issue_gc.split("/")
                 gc_y = int(parts_gc[0])
                 gc_m_str = parts_gc[1][:3]
                 gc_d = int(parts_gc[2])
-                gc_m = datetime.datetime.strptime(gc_m_str, "%b").month
+                gc_m = datetime.strptime(gc_m_str, "%b").month
                 gy, gm, gd = adjust_expiry(gc_y, gc_m, gc_d)
-                gm_str = datetime.datetime(2000, gm, 1).strftime("%b")
+                gm_str = datetime(2000, gm, 1).strftime("%b")
                 data["expiry_gc"] = f"{gy:04d}/{gm_str}/{gd:02d}"
-            else:
-                data["expiry_gc"] = ""
         except:
             data["expiry_gc"] = ""
 
-        print("parsed issue_ec, issue_gc:", data.get("issue_ec"), data.get("issue_gc"))
+        print("parsed issue_ec, issue_gc:", issue_ec, issue_gc)
+
 
 
         # Now crop FIN and barcode for placing on card
@@ -447,7 +402,15 @@ def add_white_shadow(img, blur_radius=25, expand=25):
     combined = Image.alpha_composite(shadow, img)
     return combined
 import random
-
+     # Helper to draw text with optional line break if "-" exists
+def draw_split_text(draw_obj, xy, text, font, fill, line_spacing=25):
+    if not text:
+        return
+    parts = [t.strip() for t in text.split("-", 1)]
+    draw_obj.text(xy, parts[0], fill=fill, font=font)
+    if len(parts) > 1 and parts[1]:
+        x, y = xy
+        draw_obj.text((x, y + line_spacing), parts[1], fill=fill, font=font)
 def generate_number_str():
     number = random.randint(8_900_000, 9_500_000)
     return str(number)
@@ -503,12 +466,16 @@ def create_id_card(data, template_path, output_path):
     draw_rotated_text(template, data["issue_gc"], (7, 6), 90, fonts, fill="black")
 
     draw.text((1085, 65), f"{data['phone']}", fill="black", font=font)
-    draw.text((1085, 220), data["region_am"], fill="black", font=font)
-    draw.text((1085, 250), data["region_en"], fill="black", font=font)
-    draw.text((1085, 280), data["subcity_am"], fill="black", font=font)
-    draw.text((1085, 310), data["subcity_en"], fill="black", font=font)
-    draw.text((1085, 340), data["woreda_am"], fill="black", font=font)
-    draw.text((1085, 370), data["woreda_en"], fill="black", font=font)
+   
+
+    # --- Region / Subcity / Woreda (Amharic + English) ---
+    draw_split_text(draw, (1085, 220), data["region_am"], font, "black")
+    draw_split_text(draw, (1085, 250), data["region_en"], font, "black")
+    draw_split_text(draw, (1085, 280), data["subcity_am"], font, "black")
+    draw_split_text(draw, (1085, 310), data["subcity_en"], font, "black")
+    draw_split_text(draw, (1085, 340), data["woreda_am"], font, "black")
+    draw_split_text(draw, (1085, 370), data["woreda_en"], font, "black")
+
     draw.text((1900, 570), generate_number_str(), fill="black", font=fontss)
 
     # --- Paste FAN barcode ---
