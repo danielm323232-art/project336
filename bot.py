@@ -359,7 +359,7 @@ def extract_id_data(pdf_path):
                 m = re.search(r"(\d{4})/([A-Za-z]{3,})/(\d{1,2})", text)
                 if not m:
                     return ""
-                return f"{m.group(1)}/{m.group(2).title()}/{int(m.group(3)):02d}" why not working
+                return f"{m.group(1)}/{m.group(2).title()}/{int(m.group(3)):02d}" 
 
         
             # --- 4️⃣ Extract EC and GC with fallback ---
