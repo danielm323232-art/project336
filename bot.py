@@ -265,21 +265,25 @@ def extract_id_data(pdf_path):
                 issue_line = line
                 break
         
-        # Split on pipe to separate EC / GC if present
-        parts = issue_line.split("|")
-        part_ec, part_gc = parts[0] if len(parts) > 0 else "", parts[1] if len(parts) > 1 else ""
+        # Split on pipe, maxsplit=1 in case there are multiple pipes
+        parts = issue_line.split("|", 1)
+        part_ec = parts[0] if len(parts) > 0 else ""
+        part_gc = parts[1] if len(parts) > 1 else ""
         
-        def clean_ocr_date(s):
+        def fix_ocr_errors(s):
             s = s.replace("O0", "0").replace("o0", "0").replace("I", "1").replace("l", "1")
-            s = s.replace(" ", "").replace("’", "").replace("'", "").replace(")", "")
+            s = s.replace("’", "").replace("'", "")
+            s = re.sub(r"[^\w/]", "", s)  # keep letters, digits, slashes
+            # fix common misreads like '2.0.18' → '2018'
+            s = re.sub(r'(\d)\.(\d)\.(\d{2,})', r'\1\2\3', s)
             return s
         
-        part_ec = clean_ocr_date(part_ec)
-        part_gc = clean_ocr_date(part_gc)
+        part_ec = fix_ocr_errors(part_ec)
+        part_gc = fix_ocr_errors(part_gc)
         
         # Extract EC (numeric YYYY/MM/DD)
         issue_ec = None
-        ec_match = re.search(r'(\d{4})[./-]?(\d{1,2})[./-]?(\d{1,2})', part_ec)
+        ec_match = re.search(r'(\d{4})[/-]?(\d{1,2})[/-]?(\d{1,2})', part_ec)
         if ec_match:
             y, m, d = map(int, ec_match.groups())
             issue_ec = f"{y:04d}/{m:02d}/{d:02d}"
@@ -315,6 +319,7 @@ def extract_id_data(pdf_path):
         elif issue_gc and not issue_ec:
             issue_ec = gc_to_ec(issue_gc)
         
+        data = {}
         data["issue_ec"] = issue_ec or ""
         data["issue_gc"] = issue_gc or ""
         
