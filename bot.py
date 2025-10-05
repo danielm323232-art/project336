@@ -20,6 +20,7 @@ import pytesseract
 import os
 import asyncio
 import aiohttp
+import datetime
 # ------------------ ENV ------------------
 load_dotenv()
 
@@ -248,44 +249,44 @@ def extract_id_data(pdf_path):
         barcode_img = right_images[0][1]
         # Run OCR
             # OCR full barcode image before cropping
+                
+
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
         print("OCR text:", repr(ocr_text))
 
-        # --- Find the line containing "Date of Issue" or its Amharic equivalent ---
+        # --- Find "Date of Issue" line ---
         match = re.search(r"(የተሰጠበት\s*ቀን|Date\s*of\s*Issue)(.*)", ocr_text, re.I)
         if match:
-            snippet = match.group(2)  # text after the label
+            snippet = match.group(2)
         else:
-            # fallback: take a slice of OCR text
             snippet = ocr_text[:200]
 
-        # Clean snippet: remove Amharic and excess noise
+        # Clean up
         snippet = re.sub(r'[\u1200-\u137F]+', ' ', snippet)
         snippet = snippet.replace("\n", " ").replace(":", " ").replace("=", " ")
         snippet = re.sub(r'\s+', ' ', snippet).strip()
 
-        # Expected pattern: "18/01/24 |2025/Oct/04" or "18/01/24|2025/Oct/04"
+        # Split left (EC) | right (GC)
         parts = [p.strip() for p in snippet.split("|") if p.strip()]
         left = parts[0] if len(parts) >= 1 else ''
         right = parts[1] if len(parts) >= 2 else ''
 
-        # --- EC date parser (handles 2-digit year) ---
+        # --- Parse EC date (handles 2-digit year) ---
         def parse_ec_date(s):
             m = re.search(r'(\d{2,4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})', s)
             if not m:
                 return None
             y, mth, d = m.groups()
             y = int(y)
-            if y < 100:  # fix short years (18 -> 2018)
+            if y < 100:
                 y += 2000
             try:
                 return f"{y:04d}/{int(mth):02d}/{int(d):02d}"
             except:
                 return None
 
-        # --- GC date parser (handles "Oct" or numbers) ---
+        # --- Parse GC date (handles Oct or numbers) ---
         def parse_gc_date(s):
-            # Normalize month names and digits
             m = re.search(r'(\d{4})/([A-Za-z]{3,}|\d{1,2})/(\d{1,2})', s)
             if not m:
                 return None
@@ -294,49 +295,85 @@ def extract_id_data(pdf_path):
             if mpart.isdigit():
                 try:
                     mnum = int(mpart)
-                    mpart = datetime(2000, mnum, 1).strftime("%b")
+                    mpart = datetime.datetime(2000, mnum, 1).strftime("%b")
                 except:
                     mpart = "Jan"
             else:
                 mpart = mpart[:3].capitalize()
             return f"{y:04d}/{mpart}/{int(d):02d}"
 
+        # --- Conversion helpers (approximate) ---
+        def ec_to_gc(ec_str):
+            """Convert Ethiopian Calendar → Gregorian (approx 7y9m shift)."""
+            try:
+                y, m, d = map(int, ec_str.split("/"))
+                base = datetime.date(y, m, d)
+                # rough +7 years 9 months shift
+                est = datetime.date(y + 7, m + 9 if m <= 3 else (m - 3), d)
+                return est.strftime("%Y/%b/%d")
+            except Exception:
+                return None
+
+        def gc_to_ec(gc_str):
+            """Convert Gregorian Calendar → Ethiopian (approx 7y9m shift)."""
+            try:
+                parts = gc_str.split("/")
+                y = int(parts[0])
+                m = parts[1]
+                d = int(parts[2])
+                if m.isalpha():
+                    m_num = datetime.datetime.strptime(m[:3], "%b").month
+                else:
+                    m_num = int(m)
+                base = datetime.date(y, m_num, d)
+                est = datetime.date(y - 8, m_num + 3 if m_num <= 9 else (m_num - 9), d)
+                return est.strftime("%Y/%m/%d")
+            except Exception:
+                return None
+
         issue_ec = parse_ec_date(left)
         issue_gc = parse_gc_date(right)
 
-        # Fallback: if reversed (OCR order issue)
-        if not issue_ec and issue_gc:
-            issue_ec = parse_ec_date(right)
-        if not issue_gc and issue_ec:
-            issue_gc = parse_gc_date(left)
+        # Fallback: reverse order
+        if not issue_ec and not issue_gc:
+            if len(parts) == 1:
+                issue_ec = parse_ec_date(parts[0]) or None
+                issue_gc = parse_gc_date(parts[0]) or None
 
-        # --- Store to data and compute expiry ---
-        if issue_ec:
-            data["issue_ec"] = issue_ec
-            try:
+        # --- Convert missing date automatically ---
+        if issue_ec and not issue_gc:
+            issue_gc = ec_to_gc(issue_ec)
+        elif issue_gc and not issue_ec:
+            issue_ec = gc_to_ec(issue_gc)
+
+        # --- Store to data dict ---
+        data["issue_ec"] = issue_ec or ""
+        data["issue_gc"] = issue_gc or ""
+
+        # --- Expiry dates ---
+        try:
+            if issue_ec:
                 y, m, d = map(int, issue_ec.split("/"))
                 ey, em, ed = adjust_expiry(y, m, d)
                 data["expiry_ec"] = f"{ey:04d}/{em:02d}/{ed:02d}"
-            except:
+            else:
                 data["expiry_ec"] = ""
-        else:
-            data["issue_ec"] = ""
+        except:
             data["expiry_ec"] = ""
 
-        if issue_gc:
-            data["issue_gc"] = issue_gc
-            try:
+        try:
+            if issue_gc:
                 parts_gc = issue_gc.split("/")
                 gc_y = int(parts_gc[0])
-                gc_m = datetime.strptime(parts_gc[1][:3], "%b").month
+                gc_m_str = parts_gc[1][:3]
                 gc_d = int(parts_gc[2])
+                gc_m = datetime.datetime.strptime(gc_m_str, "%b").month
                 gy, gm, gd = adjust_expiry(gc_y, gc_m, gc_d)
-                gm_str = datetime(2000, gm, 1).strftime("%b")
+                gm_str = datetime.datetime(2000, gm, 1).strftime("%b")
                 data["expiry_gc"] = f"{gy:04d}/{gm_str}/{gd:02d}"
-            except:
+            else:
                 data["expiry_gc"] = ""
-        else:
-            data["issue_gc"] = ""
+        except:
             data["expiry_gc"] = ""
 
         print("parsed issue_ec, issue_gc:", data.get("issue_ec"), data.get("issue_gc"))
