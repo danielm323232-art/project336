@@ -253,79 +253,67 @@ def extract_id_data(pdf_path):
 
                 # --- OCR full barcode image ---
                 # --- OCR only English text on barcode area ---
-        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
+        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng") 
         print("OCR text:", repr(ocr_text))
         
-        # ------------------ Extract Issue Date ------------------
-        lines = ocr_text.splitlines()
-        issue_line = ""
+        # Anchor to label and get a small snippet after it (safer than scanning whole OCR)
+        label_re = re.search(r'Date of Issue', ocr_text, flags=re.I)
+        if label_re:
+            start = label_re.end()
+            snippet = ocr_text[start:start + 200]
+        else:
+            snippet = ocr_text[:200]
         
-        for line in lines:
-            if re.search(r"Date\s*of\s*Issue", line, re.IGNORECASE):
-                issue_line = line
-                break
+        snippet = snippet.replace('\n', ' ').strip()
+        snippet = snippet.lstrip(' |:')  # remove leading separators if any
         
-        # Split on pipe, maxsplit=1 in case there are multiple pipes
-        parts = issue_line.split("|", 1)
-        part_ec = parts[0] if len(parts) > 0 else ""
-        part_gc = parts[1] if len(parts) > 1 else ""
+        # split by '|' into left (EC-ish) and right (GC-ish)
+        parts = [p.strip() for p in snippet.split('|') if p.strip()]
+        left = parts[0] if len(parts) >= 1 else ''
+        right = parts[1] if len(parts) >= 2 else ''
         
-        def fix_ocr_errors(s):
-            s = s.replace("O0", "0").replace("o0", "0").replace("I", "1").replace("l", "1")
-            s = s.replace("’", "").replace("'", "")
-            s = re.sub(r"[^\w/]", "", s)  # keep letters, digits, slashes
-            # fix common misreads like '2.0.18' → '2018'
-            s = re.sub(r'(\d)\.(\d)\.(\d{2,})', r'\1\2\3', s)
-            return s
+        issue_ec = _build_ec_from_text(left)
+        issue_gc = _clean_gc(right)
         
-        part_ec = fix_ocr_errors(part_ec)
-        part_gc = fix_ocr_errors(part_gc)
+        # Fallback attempts (OCR can swap sides)
+        if not issue_gc:
+            issue_gc = _clean_gc(left)
+        if not issue_ec:
+            issue_ec = _build_ec_from_text(right)
         
-        # Extract EC (numeric YYYY/MM/DD)
-        issue_ec = None
-        ec_match = re.search(r'(\d{4})[/-]?(\d{1,2})[/-]?(\d{1,2})', part_ec)
-        if ec_match:
-            y, m, d = map(int, ec_match.groups())
-            issue_ec = f"{y:04d}/{m:02d}/{d:02d}"
-        
-        # Extract GC (YYYY/Mon/DD)
-        issue_gc = None
-        gc_match = re.search(r'(\d{4})/([A-Za-z]{3})/(\d{1,2})', part_gc)
-        if gc_match:
-            y, m_s, d = gc_match.groups()
-            issue_gc = f"{int(y):04d}/{m_s.capitalize()[:3]}/{int(d):02d}"
-        
-        # Fallback conversions
-        def ec_to_gc(ec_str):
-            try:
-                y, m, d = map(int, ec_str.split("/"))
-                gc_date = datetime(y + 7, m, d)
-                return gc_date.strftime("%Y/%b/%d")
-            except:
-                return None
-        
-        def gc_to_ec(gc_str):
-            try:
-                y, m_s, d = gc_str.split("/")
-                y = int(y)
-                m = datetime.strptime(m_s[:3], "%b").month
-                ec_y = y - 7
-                return f"{ec_y:04d}/{m:02d}/{int(d):02d}"
-            except:
-                return None
-        
-        if issue_ec and not issue_gc:
-            issue_gc = ec_to_gc(issue_ec)
-        elif issue_gc and not issue_ec:
-            issue_ec = gc_to_ec(issue_gc)
-        
-        data = {}
+        # Always initialize fields to avoid KeyErrors
         data["issue_ec"] = issue_ec or ""
         data["issue_gc"] = issue_gc or ""
+        data["expiry_ec"] = ""
+        data["expiry_gc"] = ""
         
-        print("Parsed issue_ec:", data["issue_ec"], "issue_gc:", data["issue_gc"])
-
-
+        # ---- Compute expiry if possible ----
+        # EC Expiry
+        if issue_ec:
+            try:
+                ec_y, ec_m, ec_d = map(int, issue_ec.split("/"))
+                expiry_ec_y, expiry_ec_m, expiry_ec_d = adjust_expiry(ec_y, ec_m, ec_d)
+                data["expiry_ec"] = f"{expiry_ec_y:04d}/{expiry_ec_m:02d}/{expiry_ec_d:02d}"
+            except Exception as e:
+                print("EC expiry parse error:", e)
+        
+        # GC Expiry
+        if issue_gc:
+            try:
+                parts_gc = issue_gc.split("/")
+                gc_y = int(re.sub(r'[^0-9]', '', parts_gc[0]))
+                gc_m_str = re.sub(r'[^A-Za-z]', '', parts_gc[1])
+                gc_d = int(re.sub(r'[^0-9]', '', parts_gc[2]))
+                gc_m = datetime.strptime(gc_m_str[:3], "%b").month
+                expiry_gc_y, expiry_gc_m, expiry_gc_d = adjust_expiry(gc_y, gc_m, gc_d)
+                expiry_gc_m_str = datetime(2000, expiry_gc_m, 1).strftime("%b")
+                data["expiry_gc"] = f"{expiry_gc_y:04d}/{expiry_gc_m_str}/{expiry_gc_d:02d}"
+            except Exception as e:
+                print("GC expiry parse error:", e)
+        
+        print("parsed issue_ec, issue_gc:", data.get("issue_ec"), data.get("issue_gc"))
+        
+        
 
         # Now crop FIN and barcode for placing on card
         w, h = fin_img.size
