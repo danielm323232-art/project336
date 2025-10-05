@@ -248,64 +248,98 @@ def extract_id_data(pdf_path):
         barcode_img = right_images[0][1]
         # Run OCR
             # OCR full barcode image before cropping
-        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
+               ocr_text = pytesseract.image_to_string(barcode_img, lang="eng+amh")
         print("OCR text:", repr(ocr_text))
-        # Anchor to label and get small snippet after it (safer than scanning whole OCR)
-        label_re = re.search(r'(Date of Issue|የተሰጠበት ቀን|የተሰጠበት)', ocr_text, flags=re.I)
-        if label_re:
-            start = label_re.end()
-            snippet = ocr_text[start:start + 200]
+
+        # --- Find the line containing "Date of Issue" or its Amharic equivalent ---
+        match = re.search(r"(የተሰጠበት\s*ቀን|Date\s*of\s*Issue)(.*)", ocr_text, re.I)
+        if match:
+            snippet = match.group(2)  # text after the label
         else:
+            # fallback: take a slice of OCR text
             snippet = ocr_text[:200]
 
-        snippet = snippet.replace('\n', ' ').strip()
-        snippet = snippet.lstrip(' |:')  # remove leading separators if any
+        # Clean snippet: remove Amharic and excess noise
+        snippet = re.sub(r'[\u1200-\u137F]+', ' ', snippet)
+        snippet = snippet.replace("\n", " ").replace(":", " ").replace("=", " ")
+        snippet = re.sub(r'\s+', ' ', snippet).strip()
 
-        # split by '|' into left (EC-ish) and right (GC-ish)
-        parts = [p.strip() for p in snippet.split('|') if p.strip()]
+        # Expected pattern: "18/01/24 |2025/Oct/04" or "18/01/24|2025/Oct/04"
+        parts = [p.strip() for p in snippet.split("|") if p.strip()]
         left = parts[0] if len(parts) >= 1 else ''
         right = parts[1] if len(parts) >= 2 else ''
 
-        issue_ec = _build_ec_from_text(left)
-        issue_gc = _clean_gc(right)
-
-        # Fallback attempts: if gc not found on right, try left side (some OCR orders vary)
-        if not issue_gc:
-            issue_gc = _clean_gc(left)
-            if issue_gc and not issue_ec:
-                issue_ec = _build_ec_from_text(right)
-
-        # finally set data fields (mirror your existing behavior)
-        if issue_ec and issue_gc:
-            data["issue_ec"] = issue_ec
-            data["issue_gc"] = issue_gc
-
-            # compute expiry_ec from issue_ec (reuse your adjust_expiry helper)
+        # --- EC date parser (handles 2-digit year) ---
+        def parse_ec_date(s):
+            m = re.search(r'(\d{2,4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})', s)
+            if not m:
+                return None
+            y, mth, d = m.groups()
+            y = int(y)
+            if y < 100:  # fix short years (18 -> 2018)
+                y += 2000
             try:
-                ec_y, ec_m, ec_d = map(int, issue_ec.split("/"))
-                expiry_ec_y, expiry_ec_m, expiry_ec_d = adjust_expiry(ec_y, ec_m, ec_d)
-                data["expiry_ec"] = f"{expiry_ec_y:04d}/{expiry_ec_m:02d}/{expiry_ec_d:02d}"
-            except Exception:
-                data["expiry_ec"] = ""
+                return f"{y:04d}/{int(mth):02d}/{int(d):02d}"
+            except:
+                return None
 
-            # compute GC expiry similarly (month name -> month number)
+        # --- GC date parser (handles "Oct" or numbers) ---
+        def parse_gc_date(s):
+            # Normalize month names and digits
+            m = re.search(r'(\d{4})/([A-Za-z]{3,}|\d{1,2})/(\d{1,2})', s)
+            if not m:
+                return None
+            y, mpart, d = m.groups()
+            y = int(y)
+            if mpart.isdigit():
+                try:
+                    mnum = int(mpart)
+                    mpart = datetime(2000, mnum, 1).strftime("%b")
+                except:
+                    mpart = "Jan"
+            else:
+                mpart = mpart[:3].capitalize()
+            return f"{y:04d}/{mpart}/{int(d):02d}"
+
+        issue_ec = parse_ec_date(left)
+        issue_gc = parse_gc_date(right)
+
+        # Fallback: if reversed (OCR order issue)
+        if not issue_ec and issue_gc:
+            issue_ec = parse_ec_date(right)
+        if not issue_gc and issue_ec:
+            issue_gc = parse_gc_date(left)
+
+        # --- Store to data and compute expiry ---
+        if issue_ec:
+            data["issue_ec"] = issue_ec
+            try:
+                y, m, d = map(int, issue_ec.split("/"))
+                ey, em, ed = adjust_expiry(y, m, d)
+                data["expiry_ec"] = f"{ey:04d}/{em:02d}/{ed:02d}"
+            except:
+                data["expiry_ec"] = ""
+        else:
+            data["issue_ec"] = ""
+            data["expiry_ec"] = ""
+
+        if issue_gc:
+            data["issue_gc"] = issue_gc
             try:
                 parts_gc = issue_gc.split("/")
-                gc_y = int(re.sub(r'[^0-9]', '', parts_gc[0]))
-                gc_m_str = re.sub(r'[^A-Za-z]', '', parts_gc[1])
-                gc_d = int(re.sub(r'[^0-9]', '', parts_gc[2]))
-                gc_m = datetime.strptime(gc_m_str[:3], "%b").month
-                expiry_gc_y, expiry_gc_m, expiry_gc_d = adjust_expiry(gc_y, gc_m, gc_d)
-                expiry_gc_m_str = datetime(2000, expiry_gc_m, 1).strftime("%b")
-                data["expiry_gc"] = f"{expiry_gc_y:04d}/{expiry_gc_m_str}/{expiry_gc_d:02d}"
-            except Exception:
+                gc_y = int(parts_gc[0])
+                gc_m = datetime.strptime(parts_gc[1][:3], "%b").month
+                gc_d = int(parts_gc[2])
+                gy, gm, gd = adjust_expiry(gc_y, gc_m, gc_d)
+                gm_str = datetime(2000, gm, 1).strftime("%b")
+                data["expiry_gc"] = f"{gy:04d}/{gm_str}/{gd:02d}"
+            except:
                 data["expiry_gc"] = ""
         else:
-            data["issue_ec"] = data["issue_gc"] = ""
-            data["expiry_ec"] = data["expiry_gc"] = ""
+            data["issue_gc"] = ""
+            data["expiry_gc"] = ""
+
         print("parsed issue_ec, issue_gc:", data.get("issue_ec"), data.get("issue_gc"))
-
-
 
 
         # Now crop FIN and barcode for placing on card
