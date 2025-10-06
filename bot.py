@@ -312,111 +312,338 @@ def extract_id_data(pdf_path):
                 # --- OCR only English text on barcode area ---
         
 
-        def extract_issue_dates(ocr_text):
+        
+        # ---------- Helpers: normalization & OCR fixes ----------
+        def normalize_months(text: str) -> str:
             """
-            Extract EC and GC issue dates from full OCR text
-            (everything after 'Date of Issue' → split by '|').
+            Normalize common OCR month corruptions into 3-letter month names in Title case (Jan, Feb, ...).
+            Handles mixed digits/letters (e.g. '0ct', 'O0ct', 'ju1y'), repeated letters, stray punctuation.
             """
-            # --- 1️⃣ Take text after 'Date of Issue' ---
-            match = re.search(r'Date of Issue(.*)', ocr_text, flags=re.I | re.S)
-            if not match:
-                print("No 'Date of Issue' found.")
-                return "", ""
-            after_issue = match.group(1).strip()
-            print("Raw text after 'Date of Issue':", repr(after_issue))
+            if not text:
+                return ""
         
-            # --- 2️⃣ Split into EC (left) and GC (right) sides ---
-            parts = [p.strip() for p in after_issue.split('|') if p.strip()]
-            left = parts[0] if len(parts) >= 1 else ''
-            right = parts[1] if len(parts) >= 2 else ''
-            print("Split parts:", repr(left), "|", repr(right))
+            s = text.lower().strip()
         
-            # --- 3️⃣ Cleaning helpers ---
-            def clean_ec(text):
-                """Extract Ethiopian date (digits + / only)."""
-                text = re.sub(r"[^0-9/]", "", text)
-                m = re.search(r"(\d{2,4})/(\d{1,2})/(\d{1,2})", text)
-                if not m:
-                    return ""
-                y = m.group(1)
-                if len(y) == 2:  # Handle '18' → '2018'
-                    y = "20" + y
-                return f"{y}/{int(m.group(2)):02d}/{int(m.group(3)):02d}"
+            # quick character-level fixes that help month recognition:
+            # - convert suspicious numeric-to-letter confusions BEFORE month mapping (0 -> o)
+            s = s.replace("0", "o").replace("1", "l").replace("5", "s").replace("8", "b").replace("4", "a").replace("6", "g")
+            # remove weird punctuation except '/'
+            s = re.sub(r"[^a-z0-9/]", "", s)
         
-
-            def clean_gc(text):
-                """Extract Gregorian date (letters in month part)."""
-                text = re.sub(r"[^A-Za-z0-9/]", "", text)
-                # Fix common OCR month issues
-                text = (text.replace("0ct", "Oct")
-                             .replace("O0t", "Oct")
-                             .replace("Oot", "Oct")
-                             .replace("Ooct", "Oct")
-                             .replace("Ooc", "Oct")
-                             .replace("OOct", "Oct")
-                             .replace("o0t", "Oct")
-                             .replace("00t", "Oct")
-                             .replace("0Ot", "Oct")
-                             .replace("O0ct", "Oct")
-                             .replace("O0c", "Oct")
-                             .replace("0Oct", "Oct")
-                             .replace("0Oc", "Oct")
-                             .replace("oct", "Oct"))
-                m = re.search(r"(\d{4})/([A-Za-z]{3,})/(\d{1,2})", text)
-                if not m:
-                    return ""
-                return f"{m.group(1)}/{m.group(2).title()}/{int(m.group(3)):02d}" 
-
+            # collapse repeated characters (so "ooctt" -> "oct")
+            s = re.sub(r'(.)\1{1,}', r'\1', s)
         
-            # --- 4️⃣ Extract EC and GC with fallback ---
-            issue_ec = clean_ec(left) or clean_ec(right)
-            issue_gc = clean_gc(right) or clean_gc(left)
+            # variants for each month (non-exhaustive but wide)
+            month_map = {
+                "jan": ["ian", "jrn", "jqn"],
+                "feb": ["fe6", "fcb", "fer", "febr"],
+                "mar": ["mqr", "ma7", "marc"],
+                "apr": ["aprl", "apri", "appr"],
+                "may": ["m4y", "maay"],
+                "jun": ["juin", "jnn", "jun3"],
+                "jul": ["ju1", "juiy", "juIy"],
+                "aug": ["au9", "augus", "aue"],
+                "sep": ["sept", "5ep", "se9"],
+                "oct": ["o0t", "0ct", "oet", "octt", "oot", "oc"],
+                "nov": ["n0v", "noV", "novv"],
+                "dec": ["d3c", "de0", "decem"]
+            }
         
-            print("✅ Extracted issue_ec:", issue_ec, "| issue_gc:", issue_gc)
-            return issue_ec, issue_gc
+            # Replace variants with canonical short names
+            for clean, variants in month_map.items():
+                for v in variants:
+                    s = re.sub(v, clean, s, flags=re.I)
         
+            # Capitalize canonical months
+            for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]:
+                s = re.sub(m.lower(), m, s, flags=re.I)
         
-        # Example test with your OCR text
-        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng") 
-        issue_ec, issue_gc = extract_issue_dates(ocr_text)
-        print("Final:", issue_ec, issue_gc)
-
-        # Fallback attempts (OCR can swap sides)
-      
+            # tidy up repeated slashes, leading/trailing slashes
+            s = re.sub(r'/+', '/', s)
+            s = re.sub(r'^/|/$', '', s)
         
-        # Always initialize fields to avoid KeyErrors
-        data["issue_ec"] = issue_ec or ""
-        data["issue_gc"] = issue_gc or ""
-        data["expiry_ec"] = ""
-        data["expiry_gc"] = ""
+            return s
         
-        # ---- Compute expiry if possible ----
-        # EC Expiry
-        if issue_ec:
+        def letters_to_digits_for_numeric_context(text: str) -> str:
+            """
+            Convert OCRed letters that commonly represent digits (when we expect numeric date parts).
+            Example: 'O' or 'o' -> '0', 'l'/'I'/'i' -> '1', 's'->'5', 'b'->'8', 'z'->'2'
+            Use only in numeric cleaning contexts (EC days/months/years).
+            """
+            if not text:
+                return ""
+            s = text
+            s = s.replace('O','0').replace('o','0')
+            s = s.replace('I','1').replace('l','1').replace('i','1')
+            s = s.replace('S','5').replace('s','5')
+            s = s.replace('B','8').replace('b','8')
+            s = s.replace('Z','2').replace('z','2')
+            return s
+        
+        # ---------- Cleaners for EC (numeric) and GC (month names) ----------
+        def clean_ec(text: str) -> str:
+            """
+            Return EC date in YYYY/MM/DD (zero-padded) if possible, else "".
+            Robust to stray chars and OCR letter-digit confusions.
+            """
+            if not text:
+                return ""
+        
+            # try numeric-first approach: convert likely letter->digit confusions then strip non-digits/slashes
+            t = letters_to_digits_for_numeric_context(text)
+            t = t.replace("／", "/")  # fullwidth slash
+            t = re.sub(r'[^0-9/]', '', t)
+        
+            # look for patterns like YYYY/MM/DD or YY/MM/DD or with no slashes but contiguous digits
+            m = re.search(r'(\d{2,4})/(\d{1,2})/(\d{1,2})', t)
+            if not m:
+                # fallback: find three groups of digits separated by non-digits in original text
+                m2 = re.search(r'(\d{2,4})\D+(\d{1,2})\D+(\d{1,2})', text)
+                if m2:
+                    y, mm, dd = m2.groups()
+                else:
+                    # last fallback: collapse digits-only and try to chunk (e.g. 20180123)
+                    digits = re.sub(r'[^0-9]', '', t)
+                    if len(digits) >= 6:  # e.g. 180123 or 20180123
+                        # attempt parse as YYYYMMDD or YYMMDD
+                        if len(digits) >= 8:
+                            y = digits[:4]; mm = digits[4:6]; dd = digits[6:8]
+                        else:
+                            y = digits[:2]; mm = digits[2:4]; dd = digits[4:6]
+                    else:
+                        return ""
+            else:
+                y, mm, dd = m.groups()
+        
+            # normalize year
+            if len(y) == 2:
+                # assume 20xx
+                y = "20" + y
             try:
-                ec_y, ec_m, ec_d = map(int, issue_ec.split("/"))
-                expiry_ec_y, expiry_ec_m, expiry_ec_d = adjust_expiry(ec_y, ec_m, ec_d)
-                data["expiry_ec"] = f"{expiry_ec_y:04d}/{expiry_ec_m:02d}/{expiry_ec_d:02d}"
-            except Exception as e:
-                print("EC expiry parse error:", e)
+                y_i = int(y); mm_i = int(mm); dd_i = int(dd)
+                # quick sanity checks
+                if not (1 <= mm_i <= 12 and 1 <= dd_i <= 31):
+                    return ""
+                return f"{y_i:04d}/{mm_i:02d}/{dd_i:02d}"
+            except Exception:
+                return ""
         
-        # GC Expiry
-        if issue_gc:
-            try:
-                parts_gc = issue_gc.split("/")
-                gc_y = int(re.sub(r'[^0-9]', '', parts_gc[0]))
-                gc_m_str = re.sub(r'[^A-Za-z]', '', parts_gc[1])
-                gc_d = int(re.sub(r'[^0-9]', '', parts_gc[2]))
-                gc_m = datetime.strptime(gc_m_str[:3], "%b").month
-                expiry_gc_y, expiry_gc_m, expiry_gc_d = adjust_expiry(gc_y, gc_m, gc_d)
-                expiry_gc_m_str = datetime(2000, expiry_gc_m, 1).strftime("%b")
-                data["expiry_gc"] = f"{expiry_gc_y:04d}/{expiry_gc_m_str}/{expiry_gc_d:02d}"
-            except Exception as e:
-                print("GC expiry parse error:", e)
+        def clean_gc(text: str) -> str:
+            """
+            Return GC date in format YYYY/Mon/DD (Mon Title-case) if possible, else "".
+            Handles cases where month is OCR-corrupted (0ct -> Oct etc), or month is numeric (10 -> Oct).
+            """
+            if not text:
+                return ""
+        
+            # normalize months first to catch 'O0ct' etc
+            t = normalize_months(text)
+            t = t.replace("／", "/")
+            # keep only letters/digits/slash
+            t = re.sub(r'[^A-Za-z0-9/]', '', t)
+            t = re.sub(r'/+', '/', t)
+        
+            # try YYYY/Mon/DD
+            m = re.search(r'(\d{4})/([A-Za-z]{3,})/(\d{1,2})', t)
+            if m:
+                y, mon, dd = m.groups()
+                try:
+                    dd_i = int(dd)
+                    # convert possible 3-letter mon to proper month number by strptime
+                    mon_title = mon.title()
+                    try:
+                        month_num = datetime.strptime(mon_title[:3], "%b").month
+                        return f"{int(y):04d}/{mon_title[:3]}/{dd_i:02d}"
+                    except Exception:
+                        # if parsing month fails, return numeric month if possible
+                        return f"{int(y):04d}/{mon_title[:3]}/{dd_i:02d}"
+                except Exception:
+                    return ""
+        
+            # if month is numeric like YYYY/10/03 -> convert to month name
+            m2 = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', t)
+            if m2:
+                y, mm, dd = m2.groups()
+                try:
+                    mm_i = int(mm); dd_i = int(dd)
+                    if not (1 <= mm_i <= 12 and 1 <= dd_i <= 31):
+                        return ""
+                    mon_str = datetime(2000, mm_i, 1).strftime("%b")
+                    return f"{int(y):04d}/{mon_str}/{dd_i:02d}"
+                except Exception:
+                    return ""
+        
+            return ""
+        
+        # ---------- Find an issue date that maps to a known expiry by inverting adjust_expiry ----------
+        def invert_adjust_expiry(target_y: int, target_m: int, target_d: int, years_back: int = 30):
+            """
+            Try to find an (y,m,d) such that adjust_expiry(y,m,d) == (target_y,target_m,target_d).
+            Returns (y, m, d) or None if not found.
+            This brute-force search is bounded: years_back controls how many years prior to try.
+            """
+            # small sanity
+            if years_back <= 0:
+                return None
+        
+            start_year = max(0, target_y - years_back)
+            end_year = target_y  # issue date should be <= expiry date
+            for y in range(end_year, start_year - 1, -1):  # search from newest to oldest to find closest candidate fast
+                for m in range(1, 13):
+                    for d in range(1, 32):
+                        try:
+                            ey, em, ed = adjust_expiry(y, m, d)  # uses your existing helper
+                            if (ey, em, ed) == (target_y, target_m, target_d):
+                                return (y, m, d)
+                        except Exception:
+                            # adjust_expiry might reject invalid dates — ignore
+                            continue
+            return None
+        
+        # ---------- Extraction helpers (issue & expiry) ----------
+        def extract_after_label(text: str, label: str) -> str:
+            """Return everything after the first occurrence of label (case-insensitive), or ''."""
+            m = re.search(rf'{re.escape(label)}(.*)', text, flags=re.I | re.S)
+            return m.group(1).strip() if m else ""
+        
+        def extract_two_side_dates(after_text: str):
+            """
+            Given text after a label, split by '|' and return left, right (both stripped).
+            If there are more than 2 parts, left is first and right is second (common for OCR).
+            """
+            parts = [p.strip() for p in after_text.split('|') if p.strip()]
+            left = parts[0] if len(parts) >= 1 else ""
+            right = parts[1] if len(parts) >= 2 else ""
+            return left, right
+        
+        def extract_issue_dates_and_expiry_from_ocr(ocr_text: str, invert_years_back: int = 30):
+            """
+            Main routine:
+            - extract issue_ec and issue_gc from everything after 'Date of Issue'
+            - extract expiry_ec and expiry_gc from everything after 'Date of Expiry'
+            - compute missing expiry from issue (using adjust_expiry)
+            - if issue missing but expiry present, attempt invert (search) to find issue
+            Returns: dict with fields issue_ec, issue_gc, expiry_ec, expiry_gc
+            """
+            result = {"issue_ec": "", "issue_gc": "", "expiry_ec": "", "expiry_gc": ""}
+        
+            # --- Issue extraction (everything after 'Date of Issue') ---
+            after_issue = extract_after_label(ocr_text, "Date of Issue")
+            if after_issue:
+                left, right = extract_two_side_dates(after_issue)
+                # try to parse EC from left first (numeric)
+                parsed_ec = clean_ec(left) or clean_ec(right)
+                parsed_gc = clean_gc(right) or clean_gc(left)
+                result["issue_ec"] = parsed_ec
+                result["issue_gc"] = parsed_gc
+        
+            # --- Expiry extraction (everything after 'Date of Expiry') ---
+            after_expiry = extract_after_label(ocr_text, "Date of Expiry")
+            if after_expiry:
+                left_e, right_e = extract_two_side_dates(after_expiry)
+                parsed_expiry_ec = clean_ec(left_e) or clean_ec(right_e)
+                parsed_expiry_gc = clean_gc(right_e) or clean_gc(left_e)
+                result["expiry_ec"] = parsed_expiry_ec
+                result["expiry_gc"] = parsed_expiry_gc
+        
+            # --- Compute missing expiry from issue (forward) ---
+            # EC forward
+            if result["issue_ec"] and not result["expiry_ec"]:
+                try:
+                    y, m, d = map(int, result["issue_ec"].split("/"))
+                    ey, em, ed = adjust_expiry(y, m, d)
+                    result["expiry_ec"] = f"{ey:04d}/{em:02d}/{ed:02d}"
+                    print(f"[forward] computed expiry_ec from issue_ec: {result['expiry_ec']}")
+                except Exception as e:
+                    print("Failed to compute expiry_ec from issue_ec:", e)
+        
+            # GC forward
+            if result["issue_gc"] and not result["expiry_gc"]:
+                try:
+                    gy, gmon, gd = result["issue_gc"].split("/")
+                    gy = int(re.sub(r'[^0-9]', '', gy))
+                    gm = datetime.strptime(gmon[:3], "%b").month
+                    gd = int(re.sub(r'[^0-9]', '', gd))
+                    ey, em, ed = adjust_expiry(gy, gm, gd)
+                    expiry_mon = datetime(2000, em, 1).strftime("%b")
+                    result["expiry_gc"] = f"{ey:04d}/{expiry_mon}/{ed:02d}"
+                    print(f"[forward] computed expiry_gc from issue_gc: {result['expiry_gc']}")
+                except Exception as e:
+                    print("Failed to compute expiry_gc from issue_gc:", e)
+        
+            # --- If expiry exists but issue missing => attempt invert (reverse adjust_expiry) ---
+            # EC reverse
+            if result["expiry_ec"] and not result["issue_ec"]:
+                try:
+                    ey, em, ed = map(int, result["expiry_ec"].split("/"))
+                    found = invert_adjust_expiry(ey, em, ed, years_back=invert_years_back)
+                    if found:
+                        y, m, d = found
+                        result["issue_ec"] = f"{y:04d}/{m:02d}/{d:02d}"
+                        print(f"[reverse] found issue_ec from expiry_ec: {result['issue_ec']}")
+                except Exception as e:
+                    print("Failed invert expiry_ec -> issue_ec:", e)
+        
+            # GC reverse
+            if result["expiry_gc"] and not result["issue_gc"]:
+                try:
+                    gy, gmon, gd = result["expiry_gc"].split("/")
+                    gy = int(re.sub(r'[^0-9]', '', gy))
+                    gm = datetime.strptime(gmon[:3], "%b").month
+                    gd = int(re.sub(r'[^0-9]', '', gd))
+                    found = invert_adjust_expiry(gy, gm, gd, years_back=invert_years_back)
+                    if found:
+                        y, m, d = found
+                        # format month for GC issue
+                        mon_str = datetime(2000, m, 1).strftime("%b")
+                        result["issue_gc"] = f"{y:04d}/{mon_str}/{d:02d}"
+                        print(f"[reverse] found issue_gc from expiry_gc: {result['issue_gc']}")
+                except Exception as e:
+                    print("Failed invert expiry_gc -> issue_gc:", e)
+        
+            return result
+        
+        # ---------- USAGE (integrate into existing flow) ----------
+        # Example: within your processing code where 'ocr_text' was produced:
+        # ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
+        # fields = extract_issue_dates_and_expiry_from_ocr(ocr_text, invert_years_back=30)
+        #
+        # then set data dict accordingly and keep existing expiry computation as double-check.
+        #
+        # Example integration:
+        
+        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
+        fields = extract_issue_dates_and_expiry_from_ocr(ocr_text, invert_years_back=30)
+        
+        # write into your data (safe defaults)
+        data["issue_ec"] = fields.get("issue_ec", "") or ""
+        data["issue_gc"] = fields.get("issue_gc", "") or ""
+        data["expiry_ec"] = fields.get("expiry_ec", "") or ""
+        data["expiry_gc"] = fields.get("expiry_gc", "") or ""
+        
+        # if you still want to (optionally) re-run forward computation for any newly-found issue dates
+        # (this ensures expiry fields are present if possible)
+        try:
+            if not data["expiry_ec"] and data["issue_ec"]:
+                ey, em, ed = adjust_expiry(*map(int, data["issue_ec"].split("/")))
+                data["expiry_ec"] = f"{ey:04d}/{em:02d}/{ed:02d}"
+        except Exception:
+            pass
+        
+        try:
+            if not data["expiry_gc"] and data["issue_gc"]:
+                gy, gmon, gd = data["issue_gc"].split("/")
+                gy = int(re.sub(r'[^0-9]', '', gy))
+                gm = datetime.strptime(gmon[:3], "%b").month
+                gd = int(re.sub(r'[^0-9]', '', gd))
+                ey, em, ed = adjust_expiry(gy, gm, gd)
+                data["expiry_gc"] = f"{ey:04d}/{datetime(2000,em,1).strftime('%b')}/{ed:02d}"
+        except Exception:
+            pass
         
         print("parsed issue_ec, issue_gc:", data.get("issue_ec"), data.get("issue_gc"))
-        
-        
+        print("parsed expiry_ec, expiry_gc:", data.get("expiry_ec"), data.get("expiry_gc"))
+
 
         # Now crop FIN and barcode for placing on card
         w, h = fin_img.size
