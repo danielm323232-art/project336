@@ -525,21 +525,19 @@ def extract_id_data(pdf_path):
         def extract_issue_dates_and_expiry_from_ocr(ocr_text: str, invert_years_back: int = 30):
             result = {"issue_ec": "", "issue_gc": "", "expiry_ec": "", "expiry_gc": ""}
         
-            # --- Issue ---
             after_issue = extract_after_label(ocr_text, "Date of Issue")
             if after_issue:
                 left, right = extract_two_side_dates(after_issue)
                 result["issue_ec"] = clean_ec(left) or clean_ec(right)
                 result["issue_gc"] = clean_gc(right) or clean_gc(left)
         
-            # --- Expiry ---
             after_expiry = extract_after_label(ocr_text, "Date of Expiry")
             if after_expiry:
                 left_e, right_e = extract_two_side_dates(after_expiry)
                 result["expiry_ec"] = clean_ec(left_e) or clean_ec(right_e)
                 result["expiry_gc"] = clean_gc(right_e) or clean_gc(left_e)
         
-            # Conversions and inference
+            # conversions
             if result["issue_ec"] and not result["issue_gc"]:
                 result["issue_gc"] = ec_str_to_gc_str(result["issue_ec"])
             if result["issue_gc"] and not result["issue_ec"]:
@@ -549,7 +547,7 @@ def extract_id_data(pdf_path):
             if result["expiry_gc"] and not result["expiry_ec"]:
                 result["expiry_ec"] = gc_str_to_ec_str(result["expiry_gc"])
         
-            # Compute expiry if missing
+            # --- Compute expiry if missing ---
             if result["issue_gc"] and not result["expiry_gc"]:
                 gy, gmon, gd = result["issue_gc"].split("/")
                 gy = int(re.sub(r'[^0-9]', '', gy))
@@ -560,7 +558,7 @@ def extract_id_data(pdf_path):
                 result["expiry_gc"] = f"{exp_y:04d}/{mon_str}/{exp_d:02d}"
                 result["expiry_ec"] = gc_str_to_ec_str(result["expiry_gc"])
         
-            # Compute issue if missing
+            # --- Compute issue if missing ---
             if result["expiry_gc"] and not result["issue_gc"]:
                 gy, gmon, gd = result["expiry_gc"].split("/")
                 gy = int(re.sub(r'[^0-9]', '', gy))
@@ -571,7 +569,28 @@ def extract_id_data(pdf_path):
                 result["issue_gc"] = f"{iss_y:04d}/{mon_str}/{iss_d:02d}"
                 result["issue_ec"] = gc_str_to_ec_str(result["issue_gc"])
         
+            # ✅ NEW SAFETY FIX: sanity-check year difference
+            try:
+                if result["issue_gc"] and result["expiry_gc"]:
+                    y1, m1, d1 = result["issue_gc"].split("/")
+                    y2, m2, d2 = result["expiry_gc"].split("/")
+                    y1, y2 = int(y1), int(y2)
+                    year_diff = abs(y2 - y1)
+                    if not (7 <= year_diff <= 9):  # invalid gap
+                        # Recalculate issue from expiry as a fallback
+                        gy, gmon, gd = result["expiry_gc"].split("/")
+                        gy = int(re.sub(r'[^0-9]', '', gy))
+                        gm = datetime.strptime(gmon[:3], "%b").month
+                        gd = int(re.sub(r'[^0-9]', '', gd))
+                        iss_y, iss_m, iss_d = invert_adjust_expiry(gy, gm, gd)
+                        mon_str = datetime(2000, iss_m, 1).strftime("%b")
+                        result["issue_gc"] = f"{iss_y:04d}/{mon_str}/{iss_d:02d}"
+                        result["issue_ec"] = gc_str_to_ec_str(result["issue_gc"])
+            except Exception:
+                pass
+        
             return result
+
 
         
         # ---------- Example integration ----------
