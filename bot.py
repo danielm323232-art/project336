@@ -548,7 +548,7 @@ def extract_id_data(pdf_path):
         
         # ---------- Example integration ----------
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
-        fields = extract_issue_dates_and_expiry_from_ocr(ocr_text, invert_years_back=30)
+        fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
         
         data["issue_ec"] = fields.get("issue_ec", "") or ""
         data["issue_gc"] = fields.get("issue_gc", "") or ""
