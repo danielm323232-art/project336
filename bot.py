@@ -21,7 +21,7 @@ import os
 import asyncio
 import aiohttp
 import datetime
-import timedelta
+from datetime import timedelta
 # ------------------ ENV ------------------
 load_dotenv()
 
