@@ -487,18 +487,24 @@ def extract_id_data(pdf_path):
         
         def adjust_expiry(year, month, day):
             """expiry = issue + 8 years - 2 days"""
-            jdn = gregorian_to_jdn(year, month, day)
-            exp_jdn = jdn + (8 * 365 + 2)  # 8 years minus 2 days = ~2920 - 2
-            exp_date = jdn_to_gregorian(exp_jdn)
-            return exp_date.year, exp_date.month, exp_date.day
-        
+            issue_date = datetime(year, month, day)
+            try:
+                expiry_date = issue_date.replace(year=issue_date.year + 8) - timedelta(days=2)
+            except ValueError:
+                # handle Feb 29 → Feb 28 in non-leap expiry years
+                expiry_date = issue_date.replace(month=2, day=28, year=issue_date.year + 8) - timedelta(days=2)
+            return expiry_date.year, expiry_date.month, expiry_date.day
+
+
         def invert_adjust_expiry(year, month, day, years_back=30):
             """issue = expiry - 8 years + 2 days"""
-            jdn = gregorian_to_jdn(year, month, day)
-            issue_jdn = jdn - (8 * 365 + 2)
-            issue_date = jdn_to_gregorian(issue_jdn)
+            expiry_date = datetime(year, month, day)
+            try:
+                issue_date = expiry_date.replace(year=expiry_date.year - 8) + timedelta(days=2)
+            except ValueError:
+                issue_date = expiry_date.replace(month=2, day=28, year=expiry_date.year - 8) + timedelta(days=2)
             return issue_date.year, issue_date.month, issue_date.day
-        
+                
         # ===============================
         # OCR extraction helpers
         # ===============================
