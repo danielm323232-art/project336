@@ -340,7 +340,7 @@ def extract_id_data(pdf_path):
         # Ethiopian <-> JDN
         # ===============================
         
-        ETHIOPIAN_EPOCH = 1723856
+        ETHIOPIAN_EPOCH = 1724220
         
         def eth_to_jdn(year: int, month: int, day: int) -> int:
             return day + 30 * (month - 1) + 365 * (year - 1) + ((year - 1) // 4) + ETHIOPIAN_EPOCH
