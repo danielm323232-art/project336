@@ -342,6 +342,7 @@ def extract_id_data(pdf_path):
         # ===============================
         # Ethiopian <-> JDN
         # ===============================
+        
         ETHIOPIAN_EPOCH = 1724220
         
         def eth_to_jdn(year: int, month: int, day: int) -> int:
@@ -358,6 +359,37 @@ def extract_id_data(pdf_path):
         # ===============================
         # Cleaners
         # ===============================
+        
+        def normalize_months(text: str) -> str:
+            if not text:
+                return ""
+            s = text.lower().strip()
+            s = s.replace("0", "o").replace("1", "l").replace("5", "s").replace("8", "b").replace("4", "a").replace("6", "g")
+            s = re.sub(r"[^a-z0-9/]", "", s)
+            s = re.sub(r'(.)\1{1,}', r'\1', s)
+            month_map = {
+                "jan": ["ian", "jrn", "jqn", "jan"],
+                "feb": ["fe6", "fcb", "fer", "feb", "febr"],
+                "mar": ["mqr", "ma7", "marc", "mar"],
+                "apr": ["aprl", "apri", "appr", "apr"],
+                "may": ["m4y", "maay", "may"],
+                "jun": ["juin", "jnn", "jun3", "jun"],
+                "jul": ["ju1", "juiy", "juIy", "jul"],
+                "aug": ["au9", "augus", "aue", "aug"],
+                "sep": ["sept", "5ep", "se9", "sep"],
+                "oct": ["o0t", "0ct", "oet", "octt", "oot", "oc", "oct"],
+                "nov": ["n0v", "noV", "novv", "nov"],
+                "dec": ["d3c", "de0", "decem", "dec"]
+            }
+            for clean, variants in month_map.items():
+                for v in variants:
+                    s = re.sub(v, clean, s, flags=re.I)
+            for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]:
+                s = re.sub(m.lower(), m, s, flags=re.I)
+            s = re.sub(r'/+', '/', s)
+            s = re.sub(r'^/|/$', '', s)
+            return s
+        
         def letters_to_digits_for_numeric_context(text: str) -> str:
             if not text:
                 return ""
@@ -388,26 +420,6 @@ def extract_id_data(pdf_path):
                 return f"{y_i:04d}/{mm_i:02d}/{dd_i:02d}"
             except Exception:
                 return ""
-        
-        def normalize_months(text: str) -> str:
-            if not text:
-                return ""
-            s = text.lower().strip()
-            s = re.sub(r"[^a-z0-9/]", "", s)
-            month_map = {
-                "jan": ["ian","jrn","jqn","jan"], "feb":["fe6","fcb","fer","feb","febr"], 
-                "mar":["mqr","ma7","marc","mar"], "apr":["aprl","apri","appr","apr"], 
-                "may":["m4y","maay","may"], "jun":["juin","jnn","jun3","jun"], 
-                "jul":["ju1","juiy","july","jul"], "aug":["au9","augus","aue","aug"], 
-                "sep":["sept","5ep","se9","sep"], "oct":["o0t","0ct","oet","octt","oot","oc","oct"], 
-                "nov":["n0v","novv","nov"], "dec":["d3c","de0","decem","dec"]
-            }
-            for clean, variants in month_map.items():
-                for v in variants:
-                    s = re.sub(v, clean, s, flags=re.I)
-            s = re.sub(r'/+', '/', s)
-            s = re.sub(r'^/|/$', '', s)
-            return s
         
         def clean_gc(text: str) -> str:
             if not text:
@@ -442,6 +454,7 @@ def extract_id_data(pdf_path):
         # ===============================
         # EC <-> GC wrappers
         # ===============================
+        
         def ec_str_to_gc_str(ec_str: str) -> str:
             if not ec_str:
                 return ""
@@ -474,25 +487,31 @@ def extract_id_data(pdf_path):
         # ===============================
         # Expiry adjustment logic
         # ===============================
+        
         def adjust_expiry(year, month, day):
+            """expiry = issue + 8 years - 2 days"""
             issue_date = datetime(year, month, day)
             try:
                 expiry_date = issue_date.replace(year=issue_date.year + 8) - timedelta(days=2)
             except ValueError:
+                # handle Feb 29 → Feb 28 in non-leap expiry years
                 expiry_date = issue_date.replace(month=2, day=28, year=issue_date.year + 8) - timedelta(days=2)
             return expiry_date.year, expiry_date.month, expiry_date.day
-        
-        def invert_adjust_expiry(year, month, day):
+
+
+        def invert_adjust_expiry(year, month, day, years_back=30):
+            """issue = expiry - 8 years + 2 days"""
             expiry_date = datetime(year, month, day)
             try:
                 issue_date = expiry_date.replace(year=expiry_date.year - 8) + timedelta(days=2)
             except ValueError:
                 issue_date = expiry_date.replace(month=2, day=28, year=expiry_date.year - 8) + timedelta(days=2)
             return issue_date.year, issue_date.month, issue_date.day
-        
+                
         # ===============================
         # OCR extraction helpers
         # ===============================
+        
         def extract_after_label(text: str, label: str) -> str:
             m = re.search(rf'{re.escape(label)}(.*)', text, flags=re.I | re.S)
             return m.group(1).strip() if m else ""
@@ -506,10 +525,9 @@ def extract_id_data(pdf_path):
         # ===============================
         # Main extraction routine
         # ===============================
-        def extract_issue_dates_and_expiry_from_ocr(ocr_text: str):
-            result = {"issue_ec": "", "issue_gc": "", "expiry_ec": "", "expiry_gc": ""}
         
-            ocr_text = letters_to_digits_for_numeric_context(ocr_text)
+        def extract_issue_dates_and_expiry_from_ocr(ocr_text: str, invert_years_back: int = 30):
+            result = {"issue_ec": "", "issue_gc": "", "expiry_ec": "", "expiry_gc": ""}
         
             after_issue = extract_after_label(ocr_text, "Date of Issue")
             if after_issue:
@@ -533,7 +551,7 @@ def extract_id_data(pdf_path):
             if result["expiry_gc"] and not result["expiry_ec"]:
                 result["expiry_ec"] = gc_str_to_ec_str(result["expiry_gc"])
         
-            # Compute expiry if missing
+            # --- Compute expiry if missing ---
             if result["issue_gc"] and not result["expiry_gc"]:
                 gy, gmon, gd = result["issue_gc"].split("/")
                 gy = int(re.sub(r'[^0-9]', '', gy))
@@ -544,7 +562,7 @@ def extract_id_data(pdf_path):
                 result["expiry_gc"] = f"{exp_y:04d}/{mon_str}/{exp_d:02d}"
                 result["expiry_ec"] = gc_str_to_ec_str(result["expiry_gc"])
         
-            # Compute issue if missing
+            # --- Compute issue if missing ---
             if result["expiry_gc"] and not result["issue_gc"]:
                 gy, gmon, gd = result["expiry_gc"].split("/")
                 gy = int(re.sub(r'[^0-9]', '', gy))
@@ -555,13 +573,15 @@ def extract_id_data(pdf_path):
                 result["issue_gc"] = f"{iss_y:04d}/{mon_str}/{iss_d:02d}"
                 result["issue_ec"] = gc_str_to_ec_str(result["issue_gc"])
         
-            # Sanity check year difference
+            # ✅ NEW SAFETY FIX: sanity-check year difference
             try:
                 if result["issue_gc"] and result["expiry_gc"]:
                     y1, m1, d1 = result["issue_gc"].split("/")
                     y2, m2, d2 = result["expiry_gc"].split("/")
                     y1, y2 = int(y1), int(y2)
-                    if not (7 <= abs(y2 - y1) <= 9):
+                    year_diff = abs(y2 - y1)
+                    if not (7 <= year_diff <= 9):  # invalid gap
+                        # Recalculate issue from expiry as a fallback
                         gy, gmon, gd = result["expiry_gc"].split("/")
                         gy = int(re.sub(r'[^0-9]', '', gy))
                         gm = datetime.strptime(gmon[:3], "%b").month
@@ -573,7 +593,7 @@ def extract_id_data(pdf_path):
             except Exception:
                 pass
         
-            return result
+            return result 
 
         
         # ---------- Example integration ----------
