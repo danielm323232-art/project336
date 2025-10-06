@@ -20,8 +20,7 @@ import pytesseract
 import os
 import asyncio
 import aiohttp
-import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 # ------------------ ENV ------------------
 load_dotenv()
 
