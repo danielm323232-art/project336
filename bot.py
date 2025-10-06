@@ -304,16 +304,10 @@ def extract_id_data(pdf_path):
     if len(right_images) >= 2:
         fin_img = right_images[1][1]
         barcode_img = right_images[0][1]
-         
-             
-        # ===============================
-        # Base conversions (Gregorian <-> JDN)
-        # ===============================
-        
 
-        # ===============================
         # Gregorian <-> JDN
         # ===============================
+        
         def gregorian_to_jdn(year: int, month: int, day: int) -> int:
             a = (14 - month) // 12
             y = year + 4800 - a
@@ -336,7 +330,7 @@ def extract_id_data(pdf_path):
             d = da - (m + 4) * 153 // 5 + 122
             year = y - 4800 + (m + 2) // 12
             month = (m + 2) % 12 + 1
-            day = d + 1
+            day = da - (m + 4) * 153 // 5 + 122 + 1
             return datetime(year, month, day).date()
         
         # ===============================
@@ -357,38 +351,8 @@ def extract_id_data(pdf_path):
             return int(year), int(month), int(day)
         
         # ===============================
-        # Cleaners
+        # Text cleaning
         # ===============================
-        
-        def normalize_months(text: str) -> str:
-            if not text:
-                return ""
-            s = text.lower().strip()
-            s = s.replace("0", "o").replace("1", "l").replace("5", "s").replace("8", "b").replace("4", "a").replace("6", "g")
-            s = re.sub(r"[^a-z0-9/]", "", s)
-            s = re.sub(r'(.)\1{1,}', r'\1', s)
-            month_map = {
-                "jan": ["ian", "jrn", "jqn", "jan"],
-                "feb": ["fe6", "fcb", "fer", "feb", "febr"],
-                "mar": ["mqr", "ma7", "marc", "mar"],
-                "apr": ["aprl", "apri", "appr", "apr"],
-                "may": ["m4y", "maay", "may"],
-                "jun": ["juin", "jnn", "jun3", "jun"],
-                "jul": ["ju1", "juiy", "juIy", "jul"],
-                "aug": ["au9", "augus", "aue", "aug"],
-                "sep": ["sept", "5ep", "se9", "sep"],
-                "oct": ["o0t", "0ct", "oet", "octt", "oot", "oc", "oct"],
-                "nov": ["n0v", "noV", "novv", "nov"],
-                "dec": ["d3c", "de0", "decem", "dec"]
-            }
-            for clean, variants in month_map.items():
-                for v in variants:
-                    s = re.sub(v, clean, s, flags=re.I)
-            for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]:
-                s = re.sub(m.lower(), m, s, flags=re.I)
-            s = re.sub(r'/+', '/', s)
-            s = re.sub(r'^/|/$', '', s)
-            return s
         
         def letters_to_digits_for_numeric_context(text: str) -> str:
             if not text:
@@ -401,58 +365,67 @@ def extract_id_data(pdf_path):
             s = s.replace('Z','2').replace('z','2')
             return s
         
+        def normalize_months(text: str) -> str:
+            if not text:
+                return ""
+            s = text.lower().strip()
+            s = re.sub(r'[^a-z0-9/]', '', s)
+            month_map = {
+                "jan": ["ian","jrn","jqn","jan"], "feb": ["fe6","fcb","fer","feb","febr"],
+                "mar": ["mqr","ma7","marc","mar"], "apr": ["aprl","apri","appr","apr"],
+                "may": ["m4y","maay","may"], "jun": ["juin","jnn","jun3","jun"],
+                "jul": ["ju1","juiy","july","jul"], "aug": ["au9","augus","aue","aug"],
+                "sep": ["sept","5ep","se9","sep"], "oct": ["o0t","0ct","oet","octt","oot","oc","oct"],
+                "nov": ["n0v","novv","nov"], "dec": ["d3c","de0","decem","dec"]
+            }
+            for clean, variants in month_map.items():
+                for v in variants:
+                    s = re.sub(v, clean, s)
+            s = re.sub(r'/+', '/', s)
+            s = re.sub(r'^/|/$', '', s)
+            return s
+        
         def clean_ec(text: str) -> str:
             if not text:
                 return ""
             t = letters_to_digits_for_numeric_context(text)
-            t = t.replace("／", "/")
+            t = re.sub(r'\s+', '', t)
             t = re.sub(r'[^0-9/]', '', t)
             m = re.search(r'(\d{2,4})/(\d{1,2})/(\d{1,2})', t)
-            if not m:
-                return ""
-            y, mm, dd = m.groups()
-            if len(y) == 2:
-                y = "20" + y
-            try:
-                y_i = int(y); mm_i = int(mm); dd_i = int(dd)
-                if not (1 <= mm_i <= 13 and 1 <= dd_i <= 31):
-                    return ""
-                return f"{y_i:04d}/{mm_i:02d}/{dd_i:02d}"
-            except Exception:
-                return ""
+            if m:
+                y, mth, d = m.groups()
+                if len(y) == 2:
+                    y = "20" + y
+                return f"{int(y):04d}/{int(mth):02d}/{int(d):02d}"
+            return ""
         
         def clean_gc(text: str) -> str:
             if not text:
                 return ""
             t = normalize_months(text)
-            t = t.replace("／", "/")
+            t = re.sub(r'\s+', '', t)
             t = re.sub(r'[^A-Za-z0-9/]', '', t)
-            t = re.sub(r'/+', '/', t)
-            m = re.search(r'(\d{4})/([A-Za-z]{3,})/(\d{1,2})', t)
+            # Try month-name format
+            m = re.search(r'(\d{4})/([A-Za-z]{3})/(\d{1,2})', t)
             if m:
-                y, mon, dd = m.groups()
+                y, mon, d = m.groups()
                 try:
-                    dd_i = int(dd)
                     mon_title = mon.title()[:3]
                     _ = datetime.strptime(mon_title, "%b")
-                    return f"{int(y):04d}/{mon_title}/{dd_i:02d}"
-                except Exception:
-                    return ""
+                    return f"{int(y):04d}/{mon_title}/{int(d):02d}"
+                except:
+                    pass
+            # Try numeric format
             m2 = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', t)
             if m2:
                 y, mm, dd = m2.groups()
-                try:
-                    mm_i = int(mm); dd_i = int(dd)
-                    if not (1 <= mm_i <= 12 and 1 <= dd_i <= 31):
-                        return ""
-                    mon_str = datetime(2000, mm_i, 1).strftime("%b")
-                    return f"{int(y):04d}/{mon_str}/{dd_i:02d}"
-                except Exception:
-                    return ""
+                mm_i, dd_i = int(mm), int(dd)
+                mon_str = datetime(2000, mm_i, 1).strftime("%b")
+                return f"{int(y):04d}/{mon_str}/{dd_i:02d}"
             return ""
         
         # ===============================
-        # EC <-> GC wrappers
+        # EC <-> GC conversions
         # ===============================
         
         def ec_str_to_gc_str(ec_str: str) -> str:
@@ -463,51 +436,44 @@ def extract_id_data(pdf_path):
                 jdn = eth_to_jdn(y, m, d)
                 gdate = jdn_to_gregorian(jdn)
                 return f"{gdate.year:04d}/{gdate.strftime('%b')}/{gdate.day:02d}"
-            except Exception:
+            except:
                 return ""
         
         def gc_str_to_ec_str(gc_str: str) -> str:
             if not gc_str:
                 return ""
             try:
-                parts = gc_str.split("/")
-                y = int(re.sub(r'[^0-9]', '', parts[0]))
-                mon_part = parts[1]
+                y, mon_part, d = gc_str.split("/")
+                y_i = int(re.sub(r'[^0-9]', '', y))
+                d_i = int(re.sub(r'[^0-9]', '', d))
                 if re.search(r'\d', mon_part):
-                    m = int(re.sub(r'[^0-9]', '', mon_part))
+                    m_i = int(re.sub(r'[^0-9]', '', mon_part))
                 else:
-                    m = datetime.strptime(mon_part[:3].title(), "%b").month
-                d = int(re.sub(r'[^0-9]', '', parts[2]))
-                jdn = gregorian_to_jdn(y, m, d)
+                    m_i = datetime.strptime(mon_part[:3].title(), "%b").month
+                jdn = gregorian_to_jdn(y_i, m_i, d_i)
                 ey, em, ed = jdn_to_eth(jdn)
                 return f"{int(ey):04d}/{int(em):02d}/{int(ed):02d}"
-            except Exception:
+            except:
                 return ""
         
         # ===============================
-        # Expiry adjustment logic
+        # Expiry adjustment
         # ===============================
         
         def adjust_expiry(year, month, day):
-            """expiry = issue + 8 years - 2 days"""
-            issue_date = datetime(year, month, day)
             try:
-                expiry_date = issue_date.replace(year=issue_date.year + 8) - timedelta(days=2)
-            except ValueError:
-                # handle Feb 29 → Feb 28 in non-leap expiry years
-                expiry_date = issue_date.replace(month=2, day=28, year=issue_date.year + 8) - timedelta(days=2)
-            return expiry_date.year, expiry_date.month, expiry_date.day
-
-
-        def invert_adjust_expiry(year, month, day, years_back=30):
-            """issue = expiry - 8 years + 2 days"""
-            expiry_date = datetime(year, month, day)
+                expiry = datetime(year, month, day).replace(year=year+8) - timedelta(days=2)
+            except:
+                expiry = datetime(year, month, day).replace(month=2, day=28, year=year+8) - timedelta(days=2)
+            return expiry.year, expiry.month, expiry.day
+        
+        def invert_adjust_expiry(year, month, day):
             try:
-                issue_date = expiry_date.replace(year=expiry_date.year - 8) + timedelta(days=2)
-            except ValueError:
-                issue_date = expiry_date.replace(month=2, day=28, year=expiry_date.year - 8) + timedelta(days=2)
-            return issue_date.year, issue_date.month, issue_date.day
-                
+                issue = datetime(year, month, day).replace(year=year-8) + timedelta(days=2)
+            except:
+                issue = datetime(year, month, day).replace(month=2, day=28, year=year-8) + timedelta(days=2)
+            return issue.year, issue.month, issue.day
+        
         # ===============================
         # OCR extraction helpers
         # ===============================
@@ -516,32 +482,45 @@ def extract_id_data(pdf_path):
             m = re.search(rf'{re.escape(label)}(.*)', text, flags=re.I | re.S)
             return m.group(1).strip() if m else ""
         
-        def extract_two_side_dates(after_text: str):
-            parts = [p.strip() for p in after_text.split('|') if p.strip()]
-            left = parts[0] if len(parts) >= 1 else ""
-            right = parts[1] if len(parts) >= 2 else ""
-            return left, right
+        def extract_first_date(after_text: str):
+            """Return the first recognizable date from a string after a label."""
+            # Remove extra spaces
+            after_text = re.sub(r'\s+', '', after_text)
+            # Grab all digit groups resembling dates
+            matches = re.findall(r'(\d{2,4})\D+(\d{1,2})\D+(\d{1,2})', after_text)
+            for m in matches:
+                y, mm, dd = m
+                try:
+                    y_i = int(y)
+                    if y_i < 100:  # two-digit year
+                        y_i += 2000
+                    mm_i = int(mm)
+                    dd_i = int(dd)
+                    if 1 <= mm_i <= 12 and 1 <= dd_i <= 31:
+                        return f"{y_i:04d}/{mm_i:02d}/{dd_i:02d}"
+                except:
+                    continue
+            return ""
         
         # ===============================
         # Main extraction routine
         # ===============================
         
-        def extract_issue_dates_and_expiry_from_ocr(ocr_text: str, invert_years_back: int = 30):
+        def extract_issue_dates_and_expiry_from_ocr(ocr_text: str):
             result = {"issue_ec": "", "issue_gc": "", "expiry_ec": "", "expiry_gc": ""}
         
             after_issue = extract_after_label(ocr_text, "Date of Issue")
-            if after_issue:
-                left, right = extract_two_side_dates(after_issue)
-                result["issue_ec"] = clean_ec(left) or clean_ec(right)
-                result["issue_gc"] = clean_gc(right) or clean_gc(left)
-        
             after_expiry = extract_after_label(ocr_text, "Date of Expiry")
-            if after_expiry:
-                left_e, right_e = extract_two_side_dates(after_expiry)
-                result["expiry_ec"] = clean_ec(left_e) or clean_ec(right_e)
-                result["expiry_gc"] = clean_gc(right_e) or clean_gc(left_e)
         
-            # conversions
+            # Extract EC first if possible
+            result["issue_ec"] = clean_ec(extract_first_date(after_issue))
+            result["expiry_ec"] = clean_ec(extract_first_date(after_expiry))
+        
+            # Extract GC next
+            result["issue_gc"] = clean_gc(extract_first_date(after_issue))
+            result["expiry_gc"] = clean_gc(extract_first_date(after_expiry))
+        
+            # Fill missing GC/EC via conversions
             if result["issue_ec"] and not result["issue_gc"]:
                 result["issue_gc"] = ec_str_to_gc_str(result["issue_ec"])
             if result["issue_gc"] and not result["issue_ec"]:
@@ -551,7 +530,7 @@ def extract_id_data(pdf_path):
             if result["expiry_gc"] and not result["expiry_ec"]:
                 result["expiry_ec"] = gc_str_to_ec_str(result["expiry_gc"])
         
-            # --- Compute expiry if missing ---
+            # Compute missing expiry from issue
             if result["issue_gc"] and not result["expiry_gc"]:
                 gy, gmon, gd = result["issue_gc"].split("/")
                 gy = int(re.sub(r'[^0-9]', '', gy))
@@ -562,7 +541,7 @@ def extract_id_data(pdf_path):
                 result["expiry_gc"] = f"{exp_y:04d}/{mon_str}/{exp_d:02d}"
                 result["expiry_ec"] = gc_str_to_ec_str(result["expiry_gc"])
         
-            # --- Compute issue if missing ---
+            # Compute missing issue from expiry
             if result["expiry_gc"] and not result["issue_gc"]:
                 gy, gmon, gd = result["expiry_gc"].split("/")
                 gy = int(re.sub(r'[^0-9]', '', gy))
@@ -573,29 +552,8 @@ def extract_id_data(pdf_path):
                 result["issue_gc"] = f"{iss_y:04d}/{mon_str}/{iss_d:02d}"
                 result["issue_ec"] = gc_str_to_ec_str(result["issue_gc"])
         
-            # ✅ NEW SAFETY FIX: sanity-check year difference
-            try:
-                if result["issue_gc"] and result["expiry_gc"]:
-                    y1, m1, d1 = result["issue_gc"].split("/")
-                    y2, m2, d2 = result["expiry_gc"].split("/")
-                    y1, y2 = int(y1), int(y2)
-                    year_diff = abs(y2 - y1)
-                    if not (7 <= year_diff <= 9):  # invalid gap
-                        # Recalculate issue from expiry as a fallback
-                        gy, gmon, gd = result["expiry_gc"].split("/")
-                        gy = int(re.sub(r'[^0-9]', '', gy))
-                        gm = datetime.strptime(gmon[:3], "%b").month
-                        gd = int(re.sub(r'[^0-9]', '', gd))
-                        iss_y, iss_m, iss_d = invert_adjust_expiry(gy, gm, gd)
-                        mon_str = datetime(2000, iss_m, 1).strftime("%b")
-                        result["issue_gc"] = f"{iss_y:04d}/{mon_str}/{iss_d:02d}"
-                        result["issue_ec"] = gc_str_to_ec_str(result["issue_gc"])
-            except Exception:
-                pass
-        
-            return result 
+            return result
 
-        
         # ---------- Example integration ----------
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
         fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
