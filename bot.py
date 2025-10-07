@@ -1,6 +1,6 @@
 import os
 import io
-import re
+import re 
 import uuid
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
