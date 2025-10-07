@@ -23,6 +23,10 @@ import aiohttp
 import cv2
 import numpy as np
 from datetime import datetime, timedelta
+
+import calendar
+
+
 # ------------------ ENV ------------------
 load_dotenv()
 
@@ -68,35 +72,71 @@ def store_pdf(user_id, file_path, original_name):
     })
     return pdf_id
 
-from datetime import datetime, timedelta
-import calendar
-def preprocess_and_ocr(barcode_img):
+
+def preprocess_and_extract_bottom_text(image):
     """
-    Takes a PIL image or OpenCV image, converts to black & white, 
-    then performs OCR to extract text.
+    Preprocesses an image (black & white) and extracts only the bottom 50–100%
+    region for clean OCR of expiry dates or barcode text.
     """
     try:
-        # Convert PIL image to OpenCV format (NumPy array)
-        if isinstance(barcode_img, Image.Image):
-            barcode_img = cv2.cvtColor(np.array(barcode_img), cv2.COLOR_RGB2BGR)
+        # Convert PIL or array image to OpenCV format if necessary
+        if isinstance(image, Image.Image):
+            img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        else:
+            img = image
 
         # Convert to grayscale
-        gray = cv2.cvtColor(barcode_img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # Apply binary threshold (Otsu’s method for dynamic adjustment)
-        _, bw_img = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+        # Crop bottom 50% of the image
+        height = gray.shape[0]
+        cropped = gray[int(height * 0.5):height, :]
 
-        # Invert colors: make text/barcode black and background white
+        # Apply binary threshold to make text crisp and background white
+        _, bw_img = cv2.threshold(cropped, 150, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+
+        # Invert so text/barcode is black and background white
         bw_img = cv2.bitwise_not(bw_img)
 
-        # Run OCR on the processed image
-        ocr_text = pytesseract.image_to_string(bw_img, lang="eng")
+        # Optional — save temporary processed image
+        temp_path = f"/tmp/processed_{uuid.uuid4().hex}.png"
+        cv2.imwrite(temp_path, bw_img)
 
-        return ocr_text.strip()
+        # Run OCR
+        ocr_text = pytesseract.image_to_string(Image.open(temp_path), lang="eng")
+
+        # Clean up
+        os.remove(temp_path)
+
+        # Post-process OCR text
+        ocr_text = clean_ocr_text(ocr_text)
+
+        return ocr_text
 
     except Exception as e:
-        print(f"❌ Error during OCR preprocessing: {e}")
-        return "
+        print(f"❌ Error extracting text: {e}")
+        return ""
+
+
+def clean_ocr_text(text: str) -> str:
+    """
+    Cleans OCR text — fixes spacing, replaces OCR mistakes, normalizes date formats.
+    """
+    text = text.strip()
+    text = text.replace('\n', ' ').replace('|', ' | ')
+    text = re.sub(r'\s+', ' ', text)  # normalize spaces
+
+    # Common OCR fixes
+    text = text.replace('Ocl', 'Oct').replace('0ct', 'Oct').replace('oct', 'Oct')
+    text = text.replace('l', '1').replace('I', '1')
+
+    # Match and format dates cleanly
+    date_pattern = r'(\d{4}[\/\-\.]\w+[\/\-\.]?\d{0,2})'
+    matches = re.findall(date_pattern, text)
+    if matches:
+        text = " | ".join(matches)
+
+    return text
 def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     """
     Add +8 years, and subtract 2 days safely.
@@ -618,11 +658,10 @@ def extract_id_data(pdf_path):
 
 
 
-        # ---------- Example integration ----------
         
-        ocr_text = preprocess_and_ocr(barcode_img)
+        ocr_text = preprocess_and_extract_bottom_text(right_images[0][1])
         fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
-
+        print("Cleaned OCR Output:", ocr_text)
 
         print(ocr_text)
         data["issue_ec"] = fields.get("issue_ec", "") or ""
