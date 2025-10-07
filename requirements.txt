@@ -10,3 +10,4 @@ aiohttp
 datetime
 fastapi
 uvicorn[standard]
+opencv-python-headless
