@@ -20,6 +20,8 @@ import pytesseract
 import os
 import asyncio
 import aiohttp
+import cv2
+import numpy as np
 from datetime import datetime, timedelta
 # ------------------ ENV ------------------
 load_dotenv()
@@ -68,7 +70,33 @@ def store_pdf(user_id, file_path, original_name):
 
 from datetime import datetime, timedelta
 import calendar
+def preprocess_and_ocr(barcode_img):
+    """
+    Takes a PIL image or OpenCV image, converts to black & white, 
+    then performs OCR to extract text.
+    """
+    try:
+        # Convert PIL image to OpenCV format (NumPy array)
+        if isinstance(barcode_img, Image.Image):
+            barcode_img = cv2.cvtColor(np.array(barcode_img), cv2.COLOR_RGB2BGR)
 
+        # Convert to grayscale
+        gray = cv2.cvtColor(barcode_img, cv2.COLOR_BGR2GRAY)
+
+        # Apply binary threshold (Otsu’s method for dynamic adjustment)
+        _, bw_img = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+
+        # Invert colors: make text/barcode black and background white
+        bw_img = cv2.bitwise_not(bw_img)
+
+        # Run OCR on the processed image
+        ocr_text = pytesseract.image_to_string(bw_img, lang="eng")
+
+        return ocr_text.strip()
+
+    except Exception as e:
+        print(f"❌ Error during OCR preprocessing: {e}")
+        return "
 def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     """
     Add +8 years, and subtract 2 days safely.
@@ -591,9 +619,11 @@ def extract_id_data(pdf_path):
 
 
         # ---------- Example integration ----------
-        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
-        fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
         
+        ocr_text = preprocess_and_ocr(barcode_img)
+        fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
+
+
         print(ocr_text)
         data["issue_ec"] = fields.get("issue_ec", "") or ""
         data["issue_gc"] = fields.get("issue_gc", "") or ""
