@@ -306,7 +306,6 @@ def extract_id_data(pdf_path):
         barcode_img = right_images[0][1]
 
         # Gregorian <-> JDN
-        # ===============================
         
         def gregorian_to_jdn(year: int, month: int, day: int) -> int:
             a = (14 - month) // 12
@@ -554,6 +553,8 @@ def extract_id_data(pdf_path):
         
             return result
 
+        # ---------- Example integration ----------
+      
         # ---------- Example integration ----------
         ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
         fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
