@@ -1,6 +1,6 @@
 import os
 import io
-import re 
+import re
 import uuid
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -23,10 +23,6 @@ import aiohttp
 import cv2
 import numpy as np
 from datetime import datetime, timedelta
-
-import calendar
-
-
 # ------------------ ENV ------------------
 load_dotenv()
 
@@ -72,71 +68,35 @@ def store_pdf(user_id, file_path, original_name):
     })
     return pdf_id
 
-
-def preprocess_and_extract_bottom_text(image):
+from datetime import datetime, timedelta
+import calendar
+def preprocess_and_ocr(barcode_img):
     """
-    Preprocesses an image (black & white) and extracts only the bottom 50–100%
-    region for clean OCR of expiry dates or barcode text.
+    Takes a PIL image or OpenCV image, converts to black & white, 
+    then performs OCR to extract text.
     """
     try:
-        # Convert PIL or array image to OpenCV format if necessary
-        if isinstance(image, Image.Image):
-            img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        else:
-            img = image
+        # Convert PIL image to OpenCV format (NumPy array)
+        if isinstance(barcode_img, Image.Image):
+            barcode_img = cv2.cvtColor(np.array(barcode_img), cv2.COLOR_RGB2BGR)
 
         # Convert to grayscale
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(barcode_img, cv2.COLOR_BGR2GRAY)
 
-        # Crop bottom 50% of the image
-        height = gray.shape[0]
-        cropped = gray[int(height * 0.5):height, :]
+        # Apply binary threshold (Otsu’s method for dynamic adjustment)
+        _, bw_img = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
 
-        # Apply binary threshold to make text crisp and background white
-        _, bw_img = cv2.threshold(cropped, 150, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-
-        # Invert so text/barcode is black and background white
+        # Invert colors: make text/barcode black and background white
         bw_img = cv2.bitwise_not(bw_img)
 
-        # Optional — save temporary processed image
-        temp_path = f"/tmp/processed_{uuid.uuid4().hex}.png"
-        cv2.imwrite(temp_path, bw_img)
+        # Run OCR on the processed image
+        ocr_text = pytesseract.image_to_string(bw_img, lang="eng")
 
-        # Run OCR
-        ocr_text = pytesseract.image_to_string(Image.open(temp_path), lang="eng")
-
-        # Clean up
-        os.remove(temp_path)
-
-        # Post-process OCR text
-        ocr_text = clean_ocr_text(ocr_text)
-
-        return ocr_text
+        return ocr_text.strip()
 
     except Exception as e:
-        print(f"❌ Error extracting text: {e}")
-        return ""
-
-
-def clean_ocr_text(text: str) -> str:
-    """
-    Cleans OCR text — fixes spacing, replaces OCR mistakes, normalizes date formats.
-    """
-    text = text.strip()
-    text = text.replace('\n', ' ').replace('|', ' | ')
-    text = re.sub(r'\s+', ' ', text)  # normalize spaces
-
-    # Common OCR fixes
-    text = text.replace('Ocl', 'Oct').replace('0ct', 'Oct').replace('oct', 'Oct')
-    text = text.replace('l', '1').replace('I', '1')
-
-    # Match and format dates cleanly
-    date_pattern = r'(\d{4}[\/\-\.]\w+[\/\-\.]?\d{0,2})'
-    matches = re.findall(date_pattern, text)
-    if matches:
-        text = " | ".join(matches)
-
-    return text
+        print(f"❌ Error during OCR preprocessing: {e}")
+        return "
 def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     """
     Add +8 years, and subtract 2 days safely.
@@ -144,7 +104,7 @@ def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     """
     # Add 8 years first
     year += 8
-    
+
     # Handle day-2 safely
     if day > 2:
         day -= 2
@@ -374,7 +334,7 @@ def extract_id_data(pdf_path):
         barcode_img = right_images[0][1]
 
         # Gregorian <-> JDN
-        
+
         def gregorian_to_jdn(year: int, month: int, day: int) -> int:
             a = (14 - month) // 12
             y = year + 4800 - a
@@ -658,24 +618,27 @@ def extract_id_data(pdf_path):
 
 
 
-        
-        ocr_text = preprocess_and_extract_bottom_text(right_images[0][1])
+        # ---------- Example integration ----------
+        ocr_text = pytesseract.image_to_string(barcode_img, lang="eng")
         fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
-        print("Cleaned OCR Output:", ocr_text)
+
+        ocr_text = preprocess_and_ocr(barcode_img)
+        fields = extract_issue_dates_and_expiry_from_ocr(ocr_text)
+
 
         print(ocr_text)
         data["issue_ec"] = fields.get("issue_ec", "") or ""
         data["issue_gc"] = fields.get("issue_gc", "") or ""
         data["expiry_ec"] = fields.get("expiry_ec", "") or ""
         data["expiry_gc"] = fields.get("expiry_gc", "") or ""
-        
+
         try:
             if not data["expiry_ec"] and data["issue_ec"]:
                 ey, em, ed = adjust_expiry(*map(int, data["issue_ec"].split("/")))
                 data["expiry_ec"] = f"{ey:04d}/{em:02d}/{ed:02d}"
         except Exception:
             pass
-        
+
         try:
             if not data["expiry_gc"] and data["issue_gc"]:
                 gy, gmon, gd = data["issue_gc"].split("/")
@@ -686,10 +649,10 @@ def extract_id_data(pdf_path):
                 data["expiry_gc"] = f"{ey:04d}/{datetime(2000,em,1).strftime('%b')}/{ed:02d}"
         except Exception:
             pass
-        
+
         print("parsed issue_ec, issue_gc:", data.get("issue_ec"), data.get("issue_gc"))
         print("parsed expiry_ec, expiry_gc:", data.get("expiry_ec"), data.get("expiry_gc"))
-        
+
 
 
         # Now crop FIN and barcode for placing on card
@@ -821,7 +784,7 @@ def create_id_card(data, template_path, output_path):
     draw_rotated_text(template, data["issue_gc"], (7, 6), 90, fonts, fill="black")
 
     draw.text((1085, 65), f"{data['phone']}", fill="black", font=font)
-   
+
 
         # --- Draw text helper that returns how many lines it drew ---
     def draw_split_text(draw_obj, xy, text, font, fill, line_spacing=25):
@@ -895,17 +858,17 @@ def register_user(user_id, username):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     username = update.message.from_user.username or update.message.from_user.full_name
-    
+
     # Register user if not exists
     register_user(user_id, username)
-    
+
     # Keyboard with options
     keyboard = [
         [KeyboardButton("📇 Print ID")],
         [KeyboardButton("💳 Buy Package")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
+
     await update.message.reply_text(
         "Welcome! Choose an option below:",
         reply_markup=reply_markup
@@ -1024,7 +987,7 @@ async def handle_payment_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     receipt_text = update.message.text
     requested_package = context.user_data.get("requested_package", 0)
 
-    
+
 
     # Store pending package request
     request_id = str(uuid.uuid4())
@@ -1197,7 +1160,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="❌ Your package request was disapproved. Please contact support."
             )
         return
-   
+
 import asyncio
 semaphore = asyncio.Semaphore(2)  # only 2 PDFs at a time
 
