@@ -96,7 +96,7 @@ def preprocess_and_ocr(barcode_img):
 
     except Exception as e:
         print(f"❌ Error during OCR preprocessing: {e}")
-        return "
+        return 
 def adjust_expiry(year: int, month: int, day: int) -> (int, int, int):
     """
     Add +8 years, and subtract 2 days safely.
