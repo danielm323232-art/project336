@@ -11,6 +11,7 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     filters,
+    ConversationHandler,
     ContextTypes,
 )
 import firebase_admin
@@ -30,6 +31,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 TELEBIRR_NUMBER = os.getenv("TELEBIRR_NUMBER")
 FIREBASE_DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("FIREBASE_DATABASE_URL")
+ASK_USER_ID, ASK_MESSAGE = range(2)
 
 # ------------------ Firebase ------------------
 import json
@@ -1185,6 +1187,15 @@ async def process_printing(pdf_id, context):
         finally:
             asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=2))
 
+send_message_conv = ConversationHandler(
+    entry_points=[CommandHandler("sendmessage", send_message_start)],
+    states={
+        ASK_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_user_id)],
+        ASK_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_message_to_user)],
+    },
+    fallbacks=[CommandHandler("cancel", cancel_send)],
+)
+
 # ------------------ Main ------------------
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com/webhook
 # ---------------- FastAPI App ----------------
@@ -1196,9 +1207,11 @@ telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 # Register handlers
 telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(send_message_conv)
 telegram_app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(CallbackQueryHandler(handle_callback))
+
 
 # Root (for Render health checks)
 @app.get("/")
