@@ -1137,13 +1137,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if final_path and os.path.exists(final_path):
    
             if is_user_a4(user_id):
+                print("changing to a4")
                 pdf_output = final_path.replace(".png", "_A4.pdf")
                 make_a4_pdf_with_mirror(final_path, pdf_output)
                 with open(pdf_output, "rb") as f:
                     await context.bot.send_document(
                         chat_id=user_id,
                         document=f,
-                        caption="🎉 Your payment was approved! Here is your A4 mirrored PDF ID card."
+                        caption="🎉  Here is your A4 mirrored PDF ID card."
                     )
             else:
                 with open(final_path, "rb") as f:
