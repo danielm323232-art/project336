@@ -1219,7 +1219,7 @@ async def process_printing(pdf_id, context):
             if is_user_a4(pdf_data['user_id']):
                 print("changing to a4")
                 pdf_output = output_path.replace(".png", "_A4.pdf")
-                make_a4_pdf_with_mirror(final_path, pdf_output)
+                make_a4_pdf_with_mirror(output_path, pdf_output)
                 with open(pdf_output, "rb") as f:
                     await context.bot.send_document(
                         chat_id=pdf_data['user_id'],
