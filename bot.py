@@ -844,6 +844,36 @@ def create_id_card(data, template_path, output_path):
             break
 
     template.save(output_path, "PNG", optimize=True)
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+from PIL import Image, ImageOps
+
+def make_a4_pdf_with_mirror(png_path, output_pdf_path):
+    """
+    Create an A4 PDF with the given PNG mirrored horizontally and centered with margins.
+    """
+    img = Image.open(png_path)
+    mirrored = ImageOps.mirror(img)
+
+    # Save temporary mirrored version
+    tmp_path = png_path.replace(".png", "_mirrored.png")
+    mirrored.save(tmp_path)
+
+    a4_width, a4_height = A4
+    img_w, img_h = mirrored.size
+
+    # Scale to fit A4 with ~1cm margins
+    scale = min((a4_width - 60) / img_w, (a4_height - 60) / img_h)
+    new_w, new_h = img_w * scale, img_h * scale
+    x = (a4_width - new_w) / 2
+    y = (a4_height - new_h) / 2
+
+    c = canvas.Canvas(output_pdf_path, pagesize=A4)
+    c.drawImage(ImageReader(tmp_path), x, y, width=new_w, height=new_h)
+    c.showPage()
+    c.save()
+    os.remove(tmp_path)
 
 # ------------------ Telegram Handlers ------------------
 from telegram import ReplyKeyboardMarkup, KeyboardButton
@@ -1102,13 +1132,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if final_path and os.path.exists(final_path):
-            with open(final_path, "rb") as f:
-                # send as document (same as paid flow) to preserve quality
-                await context.bot.send_document(
-                    chat_id=user_id,
-                    document=f,
-                    caption="🎉 Your payment was approved! Here is your ID card."
-                )
+   
+            pdf_data = db.reference(f'pdfs').get() or {}
+            pdf_record = next((v for v in pdf_data.values() if v.get('user_id') == user_id), None)
+        
+            if pdf_record and pdf_record.get('allow') is True and pdf_record.get('a4') is True:
+                pdf_output = final_path.replace(".png", "_A4.pdf")
+                make_a4_pdf_with_mirror(final_path, pdf_output)
+                with open(pdf_output, "rb") as f:
+                    await context.bot.send_document(
+                        chat_id=user_id,
+                        document=f,
+                        caption="🎉 Your payment was approved! Here is your A4 mirrored PDF ID card."
+                    )
+            else:
+                with open(final_path, "rb") as f:
+                    await context.bot.send_document(
+                        chat_id=user_id,
+                        document=f,
+                        caption="🎉 Your payment was approved! Here is your ID card."
+                    )
+
         else:
             await context.bot.send_message(chat_id=user_id, text="Payment approved but file is missing on server. Contact support.")
 
