@@ -54,7 +54,10 @@ def is_user_allowed(user_id):
     ref = db.reference(f'users/{user_id}')
     user = ref.get()
     return user and user.get("allow") is True
-
+def is_user_a4(user_id):
+    ref = db.reference(f'users/{user_id}')
+    user = ref.get()
+    return user and user.get("a4") is True and user.get("allow") is True
 def store_pdf(user_id, file_path, original_name):
     pdf_id = str(uuid.uuid4())
     new_filename = f"{pdf_id}_{original_name}"   # keep original name with ID prefix
@@ -1133,10 +1136,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if final_path and os.path.exists(final_path):
    
-            pdf_data = db.reference(f'pdfs').get() or {}
-            pdf_record = next((v for v in pdf_data.values() if v.get('user_id') == user_id), None)
-        
-            if pdf_record and pdf_record.get('allow') is True and pdf_record.get('a4') is True:
+            if is_user_a4(user_id):
                 pdf_output = final_path.replace(".png", "_A4.pdf")
                 make_a4_pdf_with_mirror(final_path, pdf_output)
                 with open(pdf_output, "rb") as f:
@@ -1152,6 +1152,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         document=f,
                         caption="🎉 Your payment was approved! Here is your ID card."
                     )
+
 
         else:
             await context.bot.send_message(chat_id=user_id, text="Payment approved but file is missing on server. Contact support.")
