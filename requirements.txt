@@ -10,4 +10,5 @@ aiohttp
 datetime
 fastapi
 uvicorn[standard]
+reportlab
 opencv-python-headless
