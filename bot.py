@@ -1216,13 +1216,13 @@ async def process_printing(pdf_id, context):
         await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
 
         try: 
-            if is_user_a4(user_id):
+            if is_user_a4(pdf_data['user_id']):
                 print("changing to a4")
-                pdf_output = final_path.replace(".png", "_A4.pdf")
+                pdf_output = output_path.replace(".png", "_A4.pdf")
                 make_a4_pdf_with_mirror(final_path, pdf_output)
                 with open(pdf_output, "rb") as f:
                     await context.bot.send_document(
-                        chat_id=user_id,
+                        chat_id=pdf_data['user_id'],
                         document=f,
                         caption="🎉  Here is your A4 mirrored PDF ID card."
                     )
