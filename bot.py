@@ -1186,7 +1186,47 @@ async def process_printing(pdf_id, context):
                 await context.bot.send_document(chat_id=pdf_data['user_id'], document=doc)
         finally:
             asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=2))
+async def send_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ You are not authorized to use this command.")
+        return ConversationHandler.END
+    await update.message.reply_text("👤 Please enter the user ID you want to message:")
+    return ASK_USER_ID
 
+
+async def get_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.text.strip()
+    user_data = db.reference(f'users/{user_id}').get()
+    if not user_data:
+        await update.message.reply_text("❌ No user found with that ID. Try again or /cancel.")
+        return ConversationHandler.END
+
+    context.user_data["target_user_id"] = int(user_id)
+    await update.message.reply_text(
+        f"✅ User found: @{user_data.get('username', 'No username')}\nNow enter the message to send:"
+    )
+    return ASK_MESSAGE
+
+
+async def send_message_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message_text = update.message.text
+    target_user_id = context.user_data.get("target_user_id")
+    if not target_user_id:
+        await update.message.reply_text("❌ Something went wrong. Please start again with /sendmessage.")
+        return ConversationHandler.END
+
+    try:
+        await context.bot.send_message(chat_id=target_user_id, text=f"📩 Message from Admin:\n\n{message_text}")
+        await update.message.reply_text("✅ Message sent successfully!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to send message: {e}")
+
+    return ConversationHandler.END
+
+
+async def cancel_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🚫 Message sending cancelled.")
+    return ConversationHandler.END
 send_message_conv = ConversationHandler(
     entry_points=[CommandHandler("sendmessage", send_message_start)],
     states={
