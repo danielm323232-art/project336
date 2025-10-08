@@ -965,8 +965,7 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     has_package = user_data.get("package", 0) > 0
     is_allowed = user_data.get("allow", False)
-
-    if is_allowed or has_package:
+    if is_allowed or has_package :
         await update.message.reply_text(f"Processing PDF {pdf_id}...it wont take more than 5 minutes")
 
         # Deduct 1 package if available
@@ -1136,18 +1135,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if final_path and os.path.exists(final_path):
    
-            if is_user_a4(user_id):
-                print("changing to a4")
-                pdf_output = final_path.replace(".png", "_A4.pdf")
-                make_a4_pdf_with_mirror(final_path, pdf_output)
-                with open(pdf_output, "rb") as f:
-                    await context.bot.send_document(
-                        chat_id=user_id,
-                        document=f,
-                        caption="🎉  Here is your A4 mirrored PDF ID card."
-                    )
-            else:
-                with open(final_path, "rb") as f:
+            with open(final_path, "rb") as f:
                     await context.bot.send_document(
                         chat_id=user_id,
                         document=f,
@@ -1227,9 +1215,20 @@ async def process_printing(pdf_id, context):
 
         await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
 
-        try:
-            with open(output_path, "rb") as doc:
-                await context.bot.send_document(chat_id=pdf_data['user_id'], document=doc)
+        try: 
+            if is_user_a4(user_id):
+                print("changing to a4")
+                pdf_output = final_path.replace(".png", "_A4.pdf")
+                make_a4_pdf_with_mirror(final_path, pdf_output)
+                with open(pdf_output, "rb") as f:
+                    await context.bot.send_document(
+                        chat_id=user_id,
+                        document=f,
+                        caption="🎉  Here is your A4 mirrored PDF ID card."
+                    )
+            else:
+                with open(output_path, "rb") as doc:
+                     await context.bot.send_document(chat_id=pdf_data['user_id'], document=doc)
         finally:
             asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=2))
 async def send_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
