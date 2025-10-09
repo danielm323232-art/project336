@@ -1280,7 +1280,7 @@ async def process_printing(pdf_id, context):
         
         finally:
             # Async cleanup
-            asyncio.create_task(delayed_cleanup(cleanup_paths, delay=2))
+            asyncio.create_task(delayed_cleanup(cleanup_paths, delay=15))
 
 async def send_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
