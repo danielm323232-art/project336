@@ -3,7 +3,7 @@ import io
 import re
 import uuid
 import fitz  # PyMuPDF
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter , ImageOps , ImageEnhance
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -24,6 +24,10 @@ import aiohttp
 import cv2
 import numpy as np
 from datetime import datetime, timedelta
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+
 # ------------------ ENV ------------------
 load_dotenv()
 
@@ -847,17 +851,40 @@ def create_id_card(data, template_path, output_path):
             break
 
     template.save(output_path, "PNG", optimize=True)
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
-from PIL import Image, ImageOps
+
+def effect_change(img):
+    """
+    Apply visual enhancement effects to improve brightness,
+    contrast, color, and sharpness before mirroring.
+    """
+    # Convert to RGB (if not)
+    img = img.convert("RGB")
+
+    # Slight color correction and brightness adjustment
+    enhancer = ImageEnhance.Color(img)
+    img = enhancer.enhance(1.25)   # Increase color saturation
+
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(1.3)    # Improve contrast
+
+    enhancer = ImageEnhance.Brightness(img)
+    img = enhancer.enhance(1.1)    # Slightly brighter
+
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(1.4)    # Sharpen details
+
+    # Optional: auto equalize for more balanced lighting
+    img = ImageOps.autocontrast(img)
+
+    return img
 
 def make_a4_pdf_with_mirror(png_path, output_pdf_path):
     """
     Create an A4 PDF with the given PNG mirrored horizontally and centered with margins.
     """
     img = Image.open(png_path)
-    mirrored = ImageOps.mirror(img)
+    imgs = effect_change(img)  # ✨ Apply enhancement
+    mirrored = ImageOps.mirror(imgs)
 
     # Save temporary mirrored version
     tmp_path = png_path.replace(".png", "_mirrored.png")
