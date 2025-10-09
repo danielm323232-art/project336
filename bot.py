@@ -1242,22 +1242,36 @@ async def process_printing(pdf_id, context):
 
         await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, output_path)
 
-        try: 
+        try:
+            cleanup_paths = [pdf_data['file_path'], output_path]  # always clean these
+        
             if is_user_a4(pdf_data['user_id']):
                 print("changing to a4")
                 pdf_output = output_path.replace(".png", "_A4.pdf")
+        
                 make_a4_pdf_with_mirror(output_path, pdf_output)
+        
                 with open(pdf_output, "rb") as f:
                     await context.bot.send_document(
                         chat_id=pdf_data['user_id'],
                         document=f,
-                        caption="🎉  Here is your A4 mirrored PDF ID card."
+                        caption="🎉 Here is your A4 mirrored PDF ID card."
                     )
+        
+                # Add the A4 file for cleanup too
+                cleanup_paths.append(pdf_output)
+        
             else:
                 with open(output_path, "rb") as doc:
-                     await context.bot.send_document(chat_id=pdf_data['user_id'], document=doc)
+                    await context.bot.send_document(
+                        chat_id=pdf_data['user_id'],
+                        document=doc
+                    )
+        
         finally:
-            asyncio.create_task(delayed_cleanup([pdf_data['file_path'], output_path], delay=2))
+            # Async cleanup
+            asyncio.create_task(delayed_cleanup(cleanup_paths, delay=2))
+
 async def send_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
         await update.message.reply_text("❌ You are not authorized to use this command.")
