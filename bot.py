@@ -880,10 +880,11 @@ def effect_change(img):
 
 def make_a4_pdf_with_mirror(png_path, output_pdf_path):
     """
-    Create an A4 PDF with the given PNG mirrored horizontally and centered with margins.
+    Create an A4 PDF with the given PNG mirrored horizontally,
+    centered horizontally, and placed 2% down from the top.
     """
     img = Image.open(png_path)
-    imgs = effect_change(img)  # ✨ Apply enhancement
+    imgs = effect_change(img)  # ✨ Apply enhancement (your function)
     mirrored = ImageOps.mirror(imgs)
 
     # Save temporary mirrored version
@@ -893,17 +894,26 @@ def make_a4_pdf_with_mirror(png_path, output_pdf_path):
     a4_width, a4_height = A4
     img_w, img_h = mirrored.size
 
-    # Scale to fit A4 with ~1cm margins
-    scale = min((a4_width - 60) / img_w, (a4_height - 60) / img_h)
-    new_w, new_h = img_w * scale, img_h * scale
-    x = (a4_width - new_w) / 2
-    y = (a4_height - new_h) / 2
+    # Scale image to fit A4 width (with ~1cm horizontal margins)
+    margin_x = 30  # 30 pts ≈ 1 cm
+    max_w = a4_width - (margin_x * 2)
+    scale = max_w / img_w
+    new_w = img_w * scale
+    new_h = img_h * scale
 
+    # 2% down from top of page
+    top_margin = a4_height * 0.02
+    x = (a4_width - new_w) / 2
+    y = a4_height - new_h - top_margin  # position measured from bottom
+
+    # Draw on PDF
     c = canvas.Canvas(output_pdf_path, pagesize=A4)
     c.drawImage(ImageReader(tmp_path), x, y, width=new_w, height=new_h)
     c.showPage()
     c.save()
+
     os.remove(tmp_path)
+    print(f"✅ Created mirrored A4 PDF: {output_pdf_path}")
 
 # ------------------ Telegram Handlers ------------------
 from telegram import ReplyKeyboardMarkup, KeyboardButton
