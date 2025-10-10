@@ -881,40 +881,44 @@ def effect_change(img):
 def make_a4_pdf_with_mirror(png_path, output_pdf_path):
     """
     Create an A4 PDF with the given PNG mirrored horizontally,
-    centered horizontally, and placed 2% down from the top.
+    centered horizontally, placed 2% down from the top,
+    and rendered at real size: 174.77mm × 55mm.
     """
+    # --- Load & mirror the image ---
     img = Image.open(png_path)
-    imgs = effect_change(img)  # ✨ Apply enhancement (your function)
+    imgs = effect_change(img)  # your enhancement function
     mirrored = ImageOps.mirror(imgs)
 
     # Save temporary mirrored version
     tmp_path = png_path.replace(".png", "_mirrored.png")
     mirrored.save(tmp_path)
 
-    a4_width = 633
-    a4_height = 891
-    img_w, img_h = mirrored.size
+    # --- A4 dimensions in points ---
+    a4_width, a4_height = A4  # (595.27, 841.89)
 
-    # Scale image to fit A4 width (with ~1cm horizontal margins)
-    margin_x = 30  # 30 pts ≈ 1 cm
-    max_w = a4_width - (margin_x * 2)
-    scale = max_w / img_w
-    new_w = img_w * scale
-    new_h = img_h * scale
+    # --- Target real size in mm ---
+    width_mm = 174.77
+    height_mm = 55
 
-    # 2% down from top of page
-    top_margin = a4_height * 0.02
-    x = (a4_width - new_w) / 2
-    y = a4_height - new_h - top_margin  # position measured from bottom
+    # Convert mm → points
+    mm_to_pt = 72 / 25.4
+    img_w = width_mm * mm_to_pt
+    img_h = height_mm * mm_to_pt
 
-    # Draw on PDF
+    # --- Positioning ---
+    top_margin = a4_height * 0.02  # 2% from top
+    x = (a4_width - img_w) / 2      # center horizontally
+    y = a4_height - img_h - top_margin
+
+    # --- Create PDF ---
     c = canvas.Canvas(output_pdf_path, pagesize=A4)
-    c.drawImage(ImageReader(tmp_path), x, y, width=new_w, height=new_h)
+    c.drawImage(ImageReader(tmp_path), x, y, width=img_w, height=img_h)
     c.showPage()
     c.save()
 
     os.remove(tmp_path)
-    print(f"✅ Created mirrored A4 PDF: {output_pdf_path}")
+    print(f"✅ Created mirrored A4 PDF at real size ({width_mm}×{height_mm} mm): {output_pdf_path}")
+
 
 # ------------------ Telegram Handlers ------------------
 from telegram import ReplyKeyboardMarkup, KeyboardButton
