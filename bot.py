@@ -891,7 +891,8 @@ def make_a4_pdf_with_mirror(png_path, output_pdf_path):
     tmp_path = png_path.replace(".png", "_mirrored.png")
     mirrored.save(tmp_path)
 
-    a4_width, a4_height = A4
+    a4_width = 633
+    a4_height = 891
     img_w, img_h = mirrored.size
 
     # Scale image to fit A4 width (with ~1cm horizontal margins)
