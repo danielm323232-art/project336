@@ -885,8 +885,7 @@ def make_a4_pdf_with_mirror(png_path, output_pdf_path):
     and rendered at real size: 174.77mm × 55mm.
     """
     # --- Load & mirror the image ---
-    img = Image.open(png_path)
-    imgs = effect_change(img)  # your enhancement function
+    imgs = Image.open(png_path) # your enhancement function
     mirrored = ImageOps.mirror(imgs)
 
     # Save temporary mirrored version
@@ -897,7 +896,7 @@ def make_a4_pdf_with_mirror(png_path, output_pdf_path):
     a4_width, a4_height = A4  # (595.27, 841.89)
 
     # --- Target real size in mm ---
-    width_mm = 174.77
+    width_mm = 184.77
     height_mm = 55
 
     # Convert mm → points
