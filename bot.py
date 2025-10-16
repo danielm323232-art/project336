@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 import firebase_admin
 from firebase_admin import credentials, db
-from dotenv import load_dotenv
+from dotenv import load_dotenv 
 import pytesseract
 import os
 import asyncio
@@ -993,70 +993,95 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    file = await update.message.document.get_file()
-    original_name = update.message.document.file_name   # <-- Telegram gives you the original name
-    temp_path = f"pdfs/{uuid.uuid4()}.pdf"
-    await file.download_to_drive(temp_path)
 
-    pdf_id = store_pdf(user_id, temp_path, original_name)
+    try:
+        # ✅ Wrap Telegram file fetch in timeout guard
+        try:
+            file = await update.message.document.get_file()
+        except TimedOut:
+            await update.message.reply_text("⚠️ Network timeout while retrieving file. Please resend.")
+            return
+        except NetworkError:
+            await update.message.reply_text("⚠️ Network issue, try again in a moment.")
+            return
+        except Exception as e:
+            print("[get_file error]:", e)
+            await update.message.reply_text("❌ Failed to retrieve file. Try again.")
+            return
 
-
-    user_ref = db.reference(f'users/{user_id}')
-    user_data = user_ref.get() or {}
-
-    has_package = user_data.get("package", 0) > 0
-    is_allowed = user_data.get("allow", False)
-    if is_allowed or has_package :
-        await update.message.reply_text(f"Processing PDF {pdf_id}...it wont take more than 5 minutes")
-
-        # Deduct 1 package if available
-        if has_package:
-            new_package_count = max(0, user_data["package"] - 1)
-            user_ref.update({"package": new_package_count})
-        asyncio.create_task(process_printing(pdf_id, context))
-
-    else:
-        await update.message.reply_text(f"Processing PDF {pdf_id}...")
-        # Use the stored path
-        pdf_data = db.reference(f'pdfs/{pdf_id}').get()
-        pdf_path = pdf_data['file_path']
-
-        # Extract demo card
-        extracted = await asyncio.to_thread(extract_id_data, pdf_path)
-        demo_output = pdf_path.replace(".pdf", "_demo.png")
-        await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, demo_output)
-
-        demo_watermarked = pdf_path.replace(".pdf", "_demo_watermarked.png")
-        await asyncio.to_thread(add_demo_watermark, demo_output, demo_watermarked)
-
-        # Save request in DB
-                # Save request in DB (store request_id so we can link one-time payment)
-        request_id = str(uuid.uuid4())
-        db.reference(f'print_requests/{request_id}').set({
-            'user_id': user_id,
-            'pdf_id': pdf_id,
-            'demo_path': demo_watermarked,
-            'final_path': demo_output,
-            'status': 'pending',
-            'created_at': datetime.utcnow().isoformat()
-        })
-
-        # keep the print request id in user's session so receipt can be linked
-        context.user_data["last_print_request"] = request_id
+        original_name = update.message.document.file_name
+        temp_path = f"pdfs/{uuid.uuid4()}.pdf"
 
         try:
-            with open(demo_watermarked, "rb") as demo_file:
-                await update.message.reply_photo(
-                    photo=demo_file,
-                    caption=f"You don’t have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the sms receipt message you recieve from telebirr."
-                )
+            await file.download_to_drive(temp_path)
+        except TimedOut:
+            await update.message.reply_text("⚠️ Timeout while downloading your PDF. Try again.")
+            return
         except Exception as e:
-            print("Send error:", e)
+            print("[download error]:", e)
+            await update.message.reply_text("❌ Could not save file.")
+            return
 
-        # mark that we are awaiting a one-time receipt and which print request to fulfill
-        context.user_data["awaiting_one_time_receipt"] = True
+        pdf_id = store_pdf(user_id, temp_path, original_name)
+        user_ref = db.reference(f'users/{user_id}')
+        user_data = user_ref.get() or {}
 
+        has_package = user_data.get("package", 0) > 0
+        is_allowed = user_data.get("allow", False)
 
+        if is_allowed or has_package:
+            try:
+                await update.message.reply_text(f"Processing PDF {pdf_id}...it won’t take more than 5 minutes")
+            except Exception as e:
+                print("[reply_text fail]:", e)
+
+            if has_package:
+                new_package_count = max(0, user_data["package"] - 1)
+                user_ref.update({"package": new_package_count})
+
+            # ⚡ run in background so even if Telegram times out, game keeps going
+            asyncio.create_task(process_printing(pdf_id, context))
+
+        else:
+            await update.message.reply_text(f"Processing PDF {pdf_id}...")
+
+            pdf_data = db.reference(f'pdfs/{pdf_id}').get()
+            pdf_path = pdf_data['file_path']
+
+            extracted = await asyncio.to_thread(extract_id_data, pdf_path)
+            demo_output = pdf_path.replace(".pdf", "_demo.png")
+            await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, demo_output)
+            demo_watermarked = pdf_path.replace(".pdf", "_demo_watermarked.png")
+            await asyncio.to_thread(add_demo_watermark, demo_output, demo_watermarked)
+
+            request_id = str(uuid.uuid4())
+            db.reference(f'print_requests/{request_id}').set({
+                'user_id': user_id,
+                'pdf_id': pdf_id,
+                'demo_path': demo_watermarked,
+                'final_path': demo_output,
+                'status': 'pending',
+                'created_at': datetime.utcnow().isoformat()
+            })
+
+            context.user_data["last_print_request"] = request_id
+            context.user_data["awaiting_one_time_receipt"] = True
+
+            # Safe send
+            try:
+                with open(demo_watermarked, "rb") as demo_file:
+                    await update.message.reply_photo(
+                        photo=demo_file,
+                        caption=f"You don’t have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the SMS receipt message you receive from Telebirr."
+                    )
+            except TimedOut:
+                print("[⚠️] Timeout sending photo — skipped.")
+            except Exception as e:
+                print("[reply_photo fail]:", e)
+
+    except Exception as e:
+        # Top-level catch — this guarantees game logic never halts
+        print("[handle_pdf fatal error]:", e)
 async def handle_payment_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     receipt_text = update.message.text
