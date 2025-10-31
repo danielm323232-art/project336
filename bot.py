@@ -765,6 +765,9 @@ def create_id_card(data, template_path, output_path):
             first_img = None
 
         if first_img:
+            if user_data.get("black") is True:
+                first_img = ImageOps.grayscale(first_img).convert("RGBA")
+    
             base_w, base_h = 280, 322
             new_w, new_h = int(base_w *1.2 ), int(base_h *1.4 )
             photo = first_img.resize((new_w, new_h))
