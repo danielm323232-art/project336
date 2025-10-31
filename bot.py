@@ -1281,6 +1281,7 @@ async def process_printing(pdf_id, context):
             return
 
         extracted = await asyncio.to_thread(extract_id_data, pdf_data['file_path'])
+        extracted["id"] = pdf_data["user_id"]
         filename = os.path.basename(pdf_data['file_path'])  # e.g. UUID_efayda_something.pdf
         # remove UUID_ prefix
         filename = "_".join(filename.split("_")[1:])  # efayda_something.pdf
