@@ -62,6 +62,10 @@ def is_user_a4(user_id):
     ref = db.reference(f'users/{user_id}')
     user = ref.get()
     return user and user.get("a4") is True and user.get("allow") is True
+def is_user_black(user_id):
+    ref = db.reference(f'users/{user_id}')
+    user = ref.get()
+    return user and user.get("black") is True
 def store_pdf(user_id, file_path, original_name):
     pdf_id = str(uuid.uuid4())
     new_filename = f"{pdf_id}_{original_name}"   # keep original name with ID prefix
@@ -765,9 +769,10 @@ def create_id_card(data, template_path, output_path):
             first_img = None
 
         if first_img:
-            if user_data.get("black") is True:
+            user_id = extracted.get("id")  # or whatever key your user ID is
+            if user_id and is_user_black(user_id):
                 first_img = ImageOps.grayscale(first_img).convert("RGBA")
-    
+                
             base_w, base_h = 280, 322
             new_w, new_h = int(base_w *1.2 ), int(base_h *1.4 )
             photo = first_img.resize((new_w, new_h))
