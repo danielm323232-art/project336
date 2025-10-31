@@ -61,7 +61,12 @@ def is_user_allowed(user_id):
 def is_user_a4(user_id):
     ref = db.reference(f'users/{user_id}')
     user = ref.get()
-    return user and user.get("a4") is True and user.get("allow") is True
+    return (
+        user
+        and user.get("a4") is True
+        and (user.get("allow") is True or (user.get("package", 0) > 0))
+    )
+
 def is_user_black(user_id):
     ref = db.reference(f'users/{user_id}')
     user = ref.get()
