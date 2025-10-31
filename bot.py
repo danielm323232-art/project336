@@ -769,7 +769,7 @@ def create_id_card(data, template_path, output_path):
             first_img = None
 
         if first_img:
-            user_id = extracted.get("id")  # or whatever key your user ID is
+            user_id = data.get("id")
             if user_id and is_user_black(user_id):
                 first_img = ImageOps.grayscale(first_img).convert("RGBA")
                 
