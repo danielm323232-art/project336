@@ -959,7 +959,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     await update.message.reply_text(
-        "Welcome! Choose an option below:",
+        "Welcome! 🪪 To get your printable ID card:
+        1. Visit the official Fayda website:
+        resident.fayda.et/PrintableCredential (https://resident.fayda.et/)
+        2. Enter your FCN/FAN and verify using the SMS OTP you receive.
+        3. Tap Download Printable Credential and download your PDF file.
+        4. Send the downloaded PDF file here to this bot.
+        
+        🤖 The bot will automatically convert your PDF into a print-ready National ID card.
+        ━━━━━━━━━━━━━━━━━━━━━━━
+        
+        እንኳን ወደ ብሔራዊ መታወቂያ ፋይዳ ካርድ ሊታተም የሚችል መቀየሪያ አገልግሎት በደህና መጡ! 🎉
+        
+        🪪 ሊታተም የሚችል መታወቂያ ካርድዎን ለማግኘት፡-
+        1. በመጀመሪያ የፋይዳ ድረ-ገጽ ይጎብኙ፡-
+        resident.fayda.et/PrintableCredential (https://resident.fayda.et/)
+        2. የእርስዎን FCN/FAN ያስገቡ እና የሚቀበሉትን SMS OTP በመጠቀም ያረጋግጡ።
+        3. Download Printable Credential የሚለውን ይጫኑ እና የፒዲኤፍ ፋይልዎን ያውርዱ።
+        4. የወረደውን ፒዲኤፍ ፋይል ወደዚህ ቦት ይላኩ።
+        
+        🤖 ቦቱ በራሱ ፒዲኤፍዎን ለህትመት ዝግጁ ወደሆነ ብሄራዊ መታወቂያ ካርድ ይለውጠዋል።: ",
         reply_markup=reply_markup
     )
 
