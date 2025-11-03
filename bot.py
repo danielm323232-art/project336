@@ -941,8 +941,11 @@ def register_user(user_id, username):
         ref.set({
             "username": username,
             "allow": False,
-            "package": 0
+            "package": 1,  # give 1 free
+            "a4": False,
+            "black": False
         })
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -959,26 +962,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     await update.message.reply_text(
-        "Welcome! 🪪 To get your printable ID card:
-        1. Visit the official Fayda website:
-        resident.fayda.et/PrintableCredential (https://resident.fayda.et/)
-        2. Enter your FCN/FAN and verify using the SMS OTP you receive.
-        3. Tap Download Printable Credential and download your PDF file.
-        4. Send the downloaded PDF file here to this bot.
-        
-        🤖 The bot will automatically convert your PDF into a print-ready National ID card.
-        ━━━━━━━━━━━━━━━━━━━━━━━
-        
-        እንኳን ወደ ብሔራዊ መታወቂያ ፋይዳ ካርድ ሊታተም የሚችል መቀየሪያ አገልግሎት በደህና መጡ! 🎉
-        
-        🪪 ሊታተም የሚችል መታወቂያ ካርድዎን ለማግኘት፡-
-        1. በመጀመሪያ የፋይዳ ድረ-ገጽ ይጎብኙ፡-
-        resident.fayda.et/PrintableCredential (https://resident.fayda.et/)
-        2. የእርስዎን FCN/FAN ያስገቡ እና የሚቀበሉትን SMS OTP በመጠቀም ያረጋግጡ።
-        3. Download Printable Credential የሚለውን ይጫኑ እና የፒዲኤፍ ፋይልዎን ያውርዱ።
-        4. የወረደውን ፒዲኤፍ ፋይል ወደዚህ ቦት ይላኩ።
-        
-        🤖 ቦቱ በራሱ ፒዲኤፍዎን ለህትመት ዝግጁ ወደሆነ ብሄራዊ መታወቂያ ካርድ ይለውጠዋል።: ",
+        "Welcome! Choose an option below:",
         reply_markup=reply_markup
     )
 
@@ -1018,7 +1002,32 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"You selected {text}.\nNow send payment to {TELEBIRR_NUMBER}. Then reply the sms reciept from telebirr to be approved."
         )
+    elif text in ["Normal", "A4 Mirror", "Black & White", "A4 Mirror Black & White"]:
+        pdf_id = context.user_data.get("pending_pdf_id")
 
+        if not pdf_id:
+            await update.message.reply_text("⚠️ No PDF waiting. Send your ID PDF first.")
+            return
+        
+        # One-time print settings for this job
+        mode_map = {
+            "Normal": {"a4": False, "black": False},
+            "A4 Mirror": {"a4": True, "black": False},
+            "Black & White": {"a4": False, "black": True},
+            "A4 Mirror Black & White": {"a4": True, "black": True},
+        }
+
+        settings = mode_map[text]
+
+        # ✅ Save decision for this PDF only
+        db.reference(f'pdfs/{pdf_id}').update(settings)
+        context.user_data.pop("pending_pdf_id", None)
+
+        await update.message.reply_text("✅ Preference saved! Processing your ID...")
+
+        # Fire printing pipeline
+        asyncio.create_task(process_printing(pdf_id, context))
+        return
     else:
         await handle_payment_text(update, context)  # fallback for receipt
 
@@ -1027,93 +1036,74 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
 
     try:
-        # ✅ Wrap Telegram file fetch in timeout guard
+        # ✅ Download file safely
         try:
             file = await update.message.document.get_file()
-        except TimedOut:
-            await update.message.reply_text("⚠️ Network timeout while retrieving file. Please resend.")
-            return
-        except NetworkError:
-            await update.message.reply_text("⚠️ Network issue, try again in a moment.")
-            return
-        except Exception as e:
-            print("[get_file error]:", e)
-            await update.message.reply_text("❌ Failed to retrieve file. Try again.")
+        except Exception:
+            await update.message.reply_text("❌ Failed to retrieve file. Send again.")
             return
 
         original_name = update.message.document.file_name
         temp_path = f"pdfs/{uuid.uuid4()}.pdf"
+        await file.download_to_drive(temp_path)
 
-        try:
-            await file.download_to_drive(temp_path)
-        except TimedOut:
-            await update.message.reply_text("⚠️ Timeout while downloading your PDF. Try again.")
-            return
-        except Exception as e:
-            print("[download error]:", e)
-            await update.message.reply_text("❌ Could not save file.")
-            return
-
+        # ✅ Save record
         pdf_id = store_pdf(user_id, temp_path, original_name)
+
+        # ✅ Get user info
         user_ref = db.reference(f'users/{user_id}')
         user_data = user_ref.get() or {}
 
         has_package = user_data.get("package", 0) > 0
         is_allowed = user_data.get("allow", False)
+        a4 = user_data.get("a4", False)
+        black = user_data.get("black", False)
 
-        if is_allowed or has_package:
-            try:
-                await update.message.reply_text(f"Processing PDF {pdf_id}...it won’t take more than 5 minutes")
-            except Exception as e:
-                print("[reply_text fail]:", e)
+        # ✅ User has packages but NO special perms → ask output type
+        if has_package and not (is_allowed or a4 or black):
+            context.user_data["pending_pdf_id"] = pdf_id
+
+            keyboard = [
+                [KeyboardButton("Normal")],
+                [KeyboardButton("A4 Mirror")],
+                [KeyboardButton("Black & White")],
+                [KeyboardButton("A4 Mirror Black & White")]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+            await update.message.reply_text(
+                "📄 You have credit.\nChoose how you want your ID printed:",
+                reply_markup=reply_markup
+            )
+            return
+
+        # ✅ User has package OR is allowed → process instantly
+        if has_package or is_allowed:
+            await update.message.reply_text(f"✅ Processing your ID...")
 
             if has_package:
-                new_package_count = max(0, user_data["package"] - 1)
-                user_ref.update({"package": new_package_count})
+                user_ref.update({"package": max(0, user_data["package"] - 1)})
 
-            # ⚡ run in background so even if Telegram times out, game keeps going
             asyncio.create_task(process_printing(pdf_id, context))
+            return
 
-        else:
-            await update.message.reply_text(f"Processing PDF {pdf_id}...")
+        # ❌ User has NO package → ask to buy
+        keyboard = [
+            [KeyboardButton("💳 Buy Package")],
+            [KeyboardButton("❓ How to pay")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-            pdf_data = db.reference(f'pdfs/{pdf_id}').get()
-            pdf_path = pdf_data['file_path']
-
-            extracted = await asyncio.to_thread(extract_id_data, pdf_path)
-            demo_output = pdf_path.replace(".pdf", "_demo.png")
-            await asyncio.to_thread(create_id_card, extracted, TEMPLATE_PATH, demo_output)
-            demo_watermarked = pdf_path.replace(".pdf", "_demo_watermarked.png")
-            await asyncio.to_thread(add_demo_watermark, demo_output, demo_watermarked)
-
-            request_id = str(uuid.uuid4())
-            db.reference(f'print_requests/{request_id}').set({
-                'user_id': user_id,
-                'pdf_id': pdf_id,
-                'demo_path': demo_watermarked,
-                'final_path': demo_output,
-                'status': 'pending',
-                'created_at': datetime.utcnow().isoformat()
-            })
-
-            context.user_data["last_print_request"] = request_id
-            context.user_data["awaiting_one_time_receipt"] = True
-
-            # Safe send
-            try:
-                with open(demo_watermarked, "rb") as demo_file:
-                    await update.message.reply_photo(
-                        photo=demo_file,
-                        caption=f"You don’t have a package.\nPlease send 25 birr to {TELEBIRR_NUMBER} and the SMS receipt message you receive from Telebirr."
-                    )
-            except TimedOut:
-                print("[⚠️] Timeout sending photo — skipped.")
-            except Exception as e:
-                print("[reply_photo fail]:", e)
+        await update.message.reply_text(
+            "⛔ You don't have printing credits.\nBuy a package to continue.",
+            reply_markup=reply_markup
+        )
+        return
 
     except Exception as e:
-        # Top-level catch — this guarantees game logic never halts
         print("[handle_pdf fatal error]:", e)
+        await update.message.reply_text("⚠️ Something went wrong while processing your file.")
+
 async def handle_payment_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     receipt_text = update.message.text
