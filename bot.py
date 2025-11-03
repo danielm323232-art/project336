@@ -983,7 +983,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Keyboard with options
     keyboard = [
         [InlineKeyboardButton("📇 Print ID", callback_data="print_id")],
-        [InlineKeyboardButton("💳 Buy Package", callback_data="buy_package")]
+        [InlineKeyboardButton("💳 Buy Package", callback_data="buy_package")],
+        [InlineKeyboardButton("📞 Contact Help", url="https://t.me/BUG23")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1212,6 +1213,24 @@ async def handle_one_time_payment(update: Update, context: ContextTypes.DEFAULT_
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+        # Handle main menu buttons
+    if query.data == "print_id":
+        await query.message.reply_text("Please send me your PDF file to process.")
+        return
+
+    elif query.data == "buy_package":
+        keyboard = [
+            [KeyboardButton("200 birr = 10 packages")],
+            [KeyboardButton("500 birr = 30 packages")],
+            [KeyboardButton("1000 birr = 100 packages")],
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await query.message.reply_text(
+            "Select a package below 👇",
+            reply_markup=reply_markup
+        )
+        return
+
     if query.data.startswith("approve_one_"):
         # Only admin can approve
         if query.from_user.id != ADMIN_ID:
