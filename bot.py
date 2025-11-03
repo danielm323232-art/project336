@@ -1089,18 +1089,26 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if has_package and not (is_allowed or a4 or black):
             context.user_data["pending_pdf_id"] = pdf_id
 
+            package_count = user_data.get("package", 0)
+
             keyboard = [
-                [KeyboardButton("Normal")],
-                [KeyboardButton("A4 Mirror")],
-                [KeyboardButton("Black & White")],
-                [KeyboardButton("A4 Mirror Black & White")]
+                [
+                    InlineKeyboardButton("Normal", callback_data="print_normal"),
+                    InlineKeyboardButton("A4 Mirror", callback_data="print_a4")
+                ],
+                [
+                    InlineKeyboardButton("Black & White", callback_data="print_bw"),
+                    InlineKeyboardButton("A4 Mirror B/W", callback_data="print_a4_bw")
+                ]
             ]
-            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
             await update.message.reply_text(
-                "📄 You have credit.\nChoose how you want your ID printed:",
+                f"📄 You have **{package_count} credits**.\nChoose how you want your ID printed:",
                 reply_markup=reply_markup
             )
+
             return
 
         # ✅ User has package OR is allowed → process instantly
@@ -1309,6 +1317,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=request_data['user_id'],
                 text="❌ Your package request was disapproved. Please contact support."
             )
+        return
+    if query.data.startswith("print_"):
+        pdf_id = context.user_data.get("pending_pdf_id")
+        if not pdf_id:
+            await query.answer("No pending file", show_alert=True)
+            return
+
+        mode_map = {
+            "print_normal": {"a4": False, "black": False},
+            "print_a4": {"a4": True, "black": False},
+            "print_bw": {"a4": False, "black": True},
+            "print_a4_bw": {"a4": True, "black": True},
+        }
+
+        settings = mode_map.get(query.data)
+
+        db.reference(f'pdfs/{pdf_id}').update(settings)
+        context.user_data.pop("pending_pdf_id", None)
+
+        await query.edit_message_text("✅ Preference saved! Processing your ID...")
+        asyncio.create_task(process_printing(pdf_id, context))
         return
 
 import asyncio
