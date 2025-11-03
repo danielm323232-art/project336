@@ -775,8 +775,11 @@ def create_id_card(data, template_path, output_path):
 
         if first_img:
             user_id = data.get("id")
-            if user_id and is_user_black(user_id):
+            force_black = data.get("force_black", False)
+
+            if force_black or (user_id and is_user_black(user_id)):
                 first_img = ImageOps.grayscale(first_img).convert("RGBA")
+
                 
             base_w, base_h = 280, 322
             new_w, new_h = int(base_w *1.2 ), int(base_h *1.4 )
@@ -1306,8 +1309,23 @@ async def process_printing(pdf_id, context):
 
         try:
             cleanup_paths = [pdf_data['file_path'], output_path]  # always clean these
-        
-            if is_user_a4(pdf_data['user_id']):
+            # ✅ Fetch per-job settings (temporary A4/Black)
+            job_a4 = pdf_data.get("a4", False)
+            job_black = pdf_data.get("black", False)
+
+            # ✅ Override extracted data BEFORE generating card
+            extracted["id"] = pdf_data["user_id"]
+            extracted["a4"] = job_a4
+            extracted["black"] = job_black
+
+            output_path = os.path.join("outputs", clean_name.replace(".pdf", ".png"))
+
+            # Apply black & white if user selected BW temporarily
+            if job_black:
+                # Mark for image logic
+                extracted["force_black"] = True
+
+            if job_a4 or is_user_a4(pdf_data['user_id']):
                 print("changing to a4")
                 pdf_output = output_path.replace(".png", "_A4.pdf")
         
