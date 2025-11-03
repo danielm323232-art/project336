@@ -1413,34 +1413,56 @@ async def send_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def get_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.text.strip()
-    user_data = db.reference(f'users/{user_id}').get()
+    user_input = update.message.text.strip().lower()
+
+    if user_input == "all":
+        context.user_data["target_user_id"] = "all"
+        await update.message.reply_text("✅ You chose to send the message to **all users**.\nNow enter the message to send:")
+        return ASK_MESSAGE
+
+    # otherwise look up single user
+    user_data = db.reference(f'users/{user_input}').get()
     if not user_data:
         await update.message.reply_text("❌ No user found with that ID. Try again or /cancel.")
         return ConversationHandler.END
 
-    context.user_data["target_user_id"] = int(user_id)
+    context.user_data["target_user_id"] = int(user_input)
     await update.message.reply_text(
         f"✅ User found: @{user_data.get('username', 'No username')}\nNow enter the message to send:"
     )
     return ASK_MESSAGE
 
-
 async def send_message_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text
-    target_user_id = context.user_data.get("target_user_id")
-    if not target_user_id:
+    target = context.user_data.get("target_user_id")
+
+    if not target:
         await update.message.reply_text("❌ Something went wrong. Please start again with /sendmessage.")
         return ConversationHandler.END
 
+    # 🟢 Broadcast to all users
+    if target == "all":
+        users = db.reference('users').get() or {}
+        success, fail = 0, 0
+        for uid in users.keys():
+            try:
+                await context.bot.send_message(chat_id=uid, text=f"📩 Message from Admin:\n\n{message_text}")
+                success += 1
+                await asyncio.sleep(0.05)  # small delay to avoid flood limit
+            except Exception as e:
+                print(f"Failed to send to {uid}: {e}")
+                fail += 1
+        await update.message.reply_text(f"✅ Message sent to {success} users.\n⚠️ Failed for {fail} users.")
+        return ConversationHandler.END
+
+    # 🟢 Send to one user
     try:
-        await context.bot.send_message(chat_id=target_user_id, text=f"📩 Message from Admin:\n\n{message_text}")
+        await context.bot.send_message(chat_id=target, text=f"📩 Message from Admin:\n\n{message_text}")
         await update.message.reply_text("✅ Message sent successfully!")
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to send message: {e}")
 
     return ConversationHandler.END
-
 
 async def cancel_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚫 Message sending cancelled.")
