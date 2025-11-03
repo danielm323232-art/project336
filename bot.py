@@ -1418,6 +1418,14 @@ async def process_printing(pdf_id, context):
                         chat_id=pdf_data['user_id'],
                         document=doc
                     )
+            # ✅ Deduct one package after successful send
+            user_ref = db.reference(f'users/{pdf_data["user_id"]}')
+            user_data = user_ref.get() or {}
+            current_pkg = user_data.get("package", 0)
+            if current_pkg > 0:
+                user_ref.update({"package": current_pkg - 1})
+                print(f"📉 Deducted 1 package from user {pdf_data['user_id']}. Remaining: {current_pkg - 1}")
+
         
         finally:
             # Async cleanup
