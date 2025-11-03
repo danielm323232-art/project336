@@ -967,7 +967,7 @@ def register_user(user_id, username):
         ref.set({
             "username": username,
             "allow": False,
-            "package": 1,  # give 1 free
+            "package": 0,  # give 1 free
             "a4": False,
             "black": False
         })
