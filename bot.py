@@ -982,10 +982,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Keyboard with options
     keyboard = [
-        [KeyboardButton("📇 Print ID")],
-        [KeyboardButton("💳 Buy Package")]
+        [InlineKeyboardButton("📇 Print ID", callback_data="print_id")],
+        [InlineKeyboardButton("💳 Buy Package", callback_data="buy_package")]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
         WELCOME_MSG,
